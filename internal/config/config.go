@@ -1,0 +1,130 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+)
+
+type Config struct {
+	Workspace struct {
+		Root           string   `toml:"root"`
+		SecondaryRoots []string `toml:"secondary_roots"`
+		AutoRescan     bool     `toml:"auto_rescan_on_launch"`
+	} `toml:"workspace"`
+	Editors struct {
+		Default     string            `toml:"default"`
+		PerLanguage map[string]string `toml:"per_language"`
+	} `toml:"editors"`
+	Automation struct {
+		BridgeOwnsGitInit bool `toml:"bridge_owns_git_init"`
+		CreateBank        bool `toml:"create_bank_by_default"`
+		BuildMap          bool `toml:"build_map_by_default"`
+	} `toml:"automation"`
+	Flow struct {
+		StaleThresholdDays int `toml:"stale_threshold_days"`
+		SourceSLADays      int `toml:"source_sla_days"`
+	} `toml:"flow"`
+	Scanner struct {
+		Ignore   []string `toml:"ignore"`
+		MaxDepth int      `toml:"max_depth"`
+	} `toml:"scanner"`
+	Appearance struct {
+		Theme   string `toml:"theme"`
+		Density string `toml:"density"`
+	} `toml:"appearance"`
+	Data struct {
+		DBPath                string `toml:"db_path"`
+		SnapshotRetentionDays int    `toml:"snapshot_retention_days"`
+	} `toml:"data"`
+}
+
+func Dir() (string, error) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, ".rivu"), nil
+}
+func Path() (string, error) {
+	d, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "config.toml"), nil
+}
+func expand(s string) string {
+	if strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "~\\") {
+		if h, e := os.UserHomeDir(); e == nil {
+			return filepath.Join(h, s[2:])
+		}
+	}
+	return filepath.Clean(s)
+}
+func Default() Config {
+	var c Config
+	h, _ := os.UserHomeDir()
+	c.Workspace.Root = filepath.Join(h, "Projects")
+	c.Workspace.AutoRescan = true
+	if runtime.GOOS == "windows" {
+		c.Editors.Default = "code"
+	} else {
+		c.Editors.Default = "${EDITOR}"
+	}
+	c.Editors.PerLanguage = map[string]string{}
+	c.Automation.BridgeOwnsGitInit = true
+	c.Automation.CreateBank = true
+	c.Automation.BuildMap = true
+	c.Flow.StaleThresholdDays = 45
+	c.Flow.SourceSLADays = 14
+	c.Scanner.Ignore = []string{"node_modules", ".git", "dist", "build", ".next", "target", "vendor", "coverage", ".cache", ".venv", "__pycache__"}
+	c.Scanner.MaxDepth = 6
+	c.Appearance.Theme = "graphite-violet"
+	c.Appearance.Density = "comfortable"
+	d, _ := Dir()
+	c.Data.DBPath = filepath.Join(d, "rivu.db")
+	c.Data.SnapshotRetentionDays = 90
+	return c
+}
+func Load() (Config, error) {
+	c := Default()
+	p, err := Path()
+	if err != nil {
+		return c, err
+	}
+	if _, err = os.Stat(p); errors.Is(err, os.ErrNotExist) {
+		if err = Save(c); err != nil {
+			return c, err
+		}
+		return c, nil
+	}
+	if err != nil {
+		return c, err
+	}
+	if _, err = toml.DecodeFile(p, &c); err != nil {
+		return c, fmt.Errorf("decode config: %w", err)
+	}
+	c.Workspace.Root = expand(c.Workspace.Root)
+	c.Data.DBPath = expand(c.Data.DBPath)
+	return c, nil
+}
+func Save(c Config) error {
+	p, err := Path()
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return err
+	}
+	f, err := os.Create(p)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return toml.NewEncoder(f).Encode(c)
+}

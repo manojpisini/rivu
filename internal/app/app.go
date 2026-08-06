@@ -1,0 +1,210 @@
+package app
+
+import (
+	"fmt"
+	"github.com/google/uuid"
+	"github.com/manojpisini/rivu/internal/bank"
+	"github.com/manojpisini/rivu/internal/config"
+	"github.com/manojpisini/rivu/internal/doctor"
+	"github.com/manojpisini/rivu/internal/mapgen"
+	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/scanner"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+type App struct {
+	Config   config.Config
+	Registry *registry.Registry
+}
+
+func Open() (*App, error) {
+	c, e := config.Load()
+	if e != nil {
+		return nil, e
+	}
+	if e = os.MkdirAll(filepath.Dir(c.Data.DBPath), 0755); e != nil {
+		return nil, e
+	}
+	r, e := registry.Open(c.Data.DBPath)
+	if e != nil {
+		return nil, e
+	}
+	return &App{c, r}, nil
+}
+func (a *App) Close() error { return a.Registry.Close() }
+func (a *App) Scan() ([]registry.Project, error) {
+	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
+	ps, e := s.Scan(a.Config.Workspace.Root)
+	if e != nil {
+		return nil, e
+	}
+	for _, p := range ps {
+		if e = a.Registry.Upsert(p); e != nil {
+			return nil, e
+		}
+	}
+	return ps, nil
+}
+func slug(s string) string {
+	return strings.Trim(strings.ToLower(strings.ReplaceAll(s, " ", "-")), "-")
+}
+func channel(flow string) string {
+	switch flow {
+	case "source":
+		return "00_Source"
+	case "active":
+		return "01_Active"
+	case "maintenance":
+		return "02_Maintenance"
+	case "research":
+		return "03_Research"
+	case "delta":
+		return "90_Delta"
+	}
+	return "00_Source"
+}
+func validFlow(s string) bool {
+	switch s {
+	case "source", "active", "maintenance", "research", "delta":
+		return true
+	}
+	return false
+}
+func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, error) {
+	if name == "" {
+		return registry.Project{}, fmt.Errorf("name is required")
+	}
+	if flow == "" {
+		flow = "source"
+	}
+	if !validFlow(flow) {
+		return registry.Project{}, fmt.Errorf("invalid flow stage %q", flow)
+	}
+	ch := channel(flow)
+	path := filepath.Join(a.Config.Workspace.Root, ch, slug(name))
+	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: slug(name), Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
+	if dry {
+		return p, nil
+	}
+	if e := os.MkdirAll(path, 0755); e != nil {
+		return p, e
+	}
+	if gitInit {
+		cmd := exec.Command("git", "init")
+		cmd.Dir = path
+		if out, e := cmd.CombinedOutput(); e != nil {
+			return p, fmt.Errorf("git init: %w: %s", e, out)
+		}
+		p.HasGit = true
+	}
+	if a.Config.Automation.CreateBank {
+		if e := bank.Build(p, "rivu"); e != nil {
+			return p, e
+		}
+		p.HasBank = true
+	}
+	if a.Config.Automation.BuildMap {
+		if e := mapgen.Build(p); e != nil {
+			return p, e
+		}
+		p.HasMap = true
+	}
+	if e := a.Registry.Upsert(p); e != nil {
+		return p, e
+	}
+	_ = a.Registry.SetCurrent(p.ID)
+	return p, nil
+}
+func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
+	if !validFlow(to) {
+		return registry.Project{}, "", fmt.Errorf("invalid flow stage %q", to)
+	}
+	p, e := a.Registry.Resolve(q)
+	if e != nil {
+		return p, "", e
+	}
+	dest := filepath.Join(a.Config.Workspace.Root, channel(to), filepath.Base(p.Path))
+	if dry {
+		return p, dest, nil
+	}
+	if e = os.MkdirAll(filepath.Dir(dest), 0755); e != nil {
+		return p, dest, e
+	}
+	if p.Path != dest {
+		if e = os.Rename(p.Path, dest); e != nil {
+			return p, dest, e
+		}
+	}
+	p.Path = dest
+	p.Channel = channel(to)
+	p.FlowStage = to
+	if e = bank.Build(p, "rivu"); e != nil {
+		return p, dest, e
+	}
+	if e = a.Registry.UpdatePathFlow(p.ID, dest, p.Channel, to); e != nil {
+		return p, dest, e
+	}
+	return p, dest, nil
+}
+func (a *App) Doctor(q string) ([]doctor.Report, error) {
+	var ps []registry.Project
+	if q != "" {
+		p, e := a.Registry.Resolve(q)
+		if e != nil {
+			return nil, e
+		}
+		ps = []registry.Project{p}
+	} else {
+		var e error
+		ps, e = a.Registry.List()
+		if e != nil {
+			return nil, e
+		}
+	}
+	out := make([]doctor.Report, 0, len(ps))
+	for _, p := range ps {
+		r := doctor.Run(p)
+		_ = a.Registry.SetHealth(p.ID, r.Score)
+		out = append(out, r)
+	}
+	return out, nil
+}
+func (a *App) Map(q string) error {
+	p, e := a.Registry.Resolve(q)
+	if e != nil {
+		return e
+	}
+	if e = bank.Build(p, "rivu"); e != nil {
+		return e
+	}
+	return mapgen.Build(p)
+}
+func (a *App) OpenProject(q string) error {
+	p, e := a.Registry.Resolve(q)
+	if e != nil {
+		return e
+	}
+	_ = a.Registry.SetCurrent(p.ID)
+	editor := a.Config.Editors.Default
+	if editor == "${EDITOR}" || editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		if runtime.GOOS == "windows" {
+			editor = "code"
+		} else {
+			editor = "vi"
+		}
+	}
+	parts := strings.Fields(editor)
+	cmd := exec.Command(parts[0], append(parts[1:], p.Path)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Start()
+}
