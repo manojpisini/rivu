@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var version = "1.0.0"
+var version = "1.0.1"
 var commit = "dev"
 var date = "unknown"
 
@@ -37,7 +37,7 @@ func root() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return tui.Run(ps)
+		return tui.Run(ps, a.Config.Workspace.Root)
 	})
 	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd())
 	return r
@@ -51,7 +51,7 @@ func tuiCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		return tui.Run(ps)
+		return tui.Run(ps, a.Config.Workspace.Root)
 	})}
 }
 func scanCmd() *cobra.Command {

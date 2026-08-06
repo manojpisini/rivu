@@ -44,9 +44,56 @@ func b(v bool) int {
 	return 0
 }
 func (r *Registry) Upsert(p Project) error {
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// A scan creates fresh candidate IDs, but project identity belongs to the
+	// existing path. Preserve both ID and slug when the same path is rescanned.
+	var existingID, existingSlug string
+	err = tx.QueryRow(`SELECT id,slug FROM projects WHERE path=?`, p.Path).Scan(&existingID, &existingSlug)
+	switch {
+	case err == nil:
+		p.ID = existingID
+		p.Slug = existingSlug
+	case errors.Is(err, sql.ErrNoRows):
+		p.Slug, err = uniqueSlug(tx, p.Slug, p.Path)
+		if err != nil {
+			return err
+		}
+	default:
+		return err
+	}
+
 	st, _ := json.Marshal(p.Stack)
-	_, err := r.DB.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,slug=excluded.slug,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,health_score=excluded.health_score,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
-	return err
+	_, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,health_score=excluded.health_score,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func uniqueSlug(tx *sql.Tx, base, path string) (string, error) {
+	if base == "" {
+		base = "project"
+	}
+	candidate := base
+	for i := 2; ; i++ {
+		var owner string
+		err := tx.QueryRow(`SELECT path FROM projects WHERE slug=?`, candidate).Scan(&owner)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return candidate, nil
+		case err != nil:
+			return "", err
+		case owner == path:
+			return candidate, nil
+		default:
+			candidate = fmt.Sprintf("%s-%d", base, i)
+		}
+	}
 }
 func scanProject(s interface{ Scan(...any) error }) (Project, error) {
 	var p Project
