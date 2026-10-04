@@ -63,4 +63,4 @@ go vet ./...
 go build ./cmd/rivu
 ```
 
-See `rivu_project_spec.md` for the complete product, production, and architecture specification.
+See `docs/rivu_project_spec.md` for the complete product, production, and architecture specification.
