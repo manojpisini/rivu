@@ -1,9 +1,15 @@
 /rivu
+/rivu.exe
 /dist/
+coverage.out
+*.test
 *.db
 *.db-shm
 *.db-wal
 .DS_Store
+*.log
+.idea/
+.vscode/
 /plans/
 /docs/
 /scripts/
