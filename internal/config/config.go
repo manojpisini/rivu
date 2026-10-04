@@ -98,6 +98,41 @@ func Default() Config {
 	return c
 }
 
+// Validate reports configuration values Rivu cannot work with.
+// Call it after Load; it never mutates c.
+func Validate(c Config) error {
+	var problems []string
+	if c.Scanner.MaxDepth < 1 {
+		problems = append(problems, fmt.Sprintf("scanner.max_depth = %d, must be >= 1", c.Scanner.MaxDepth))
+	}
+	if c.Flow.StaleThresholdDays < 1 {
+		problems = append(problems, fmt.Sprintf("flow.stale_threshold_days = %d, must be >= 1", c.Flow.StaleThresholdDays))
+	}
+	if c.Flow.SourceSLADays < 1 {
+		problems = append(problems, fmt.Sprintf("flow.source_sla_days = %d, must be >= 1", c.Flow.SourceSLADays))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("invalid config in %s:\n  - %s\nFix the listed values and run again", mustPath(), strings.Join(problems, "\n  - "))
+}
+
+// ValidateRoot checks the workspace root exists; scan cannot run without it.
+func ValidateRoot(c Config) error {
+	if _, err := os.Stat(c.Workspace.Root); err != nil {
+		return fmt.Errorf("workspace root %s does not exist — create it or set [workspace].root in %s", c.Workspace.Root, mustPath())
+	}
+	return nil
+}
+
+func mustPath() string {
+	p, err := Path()
+	if err != nil {
+		return "config.toml"
+	}
+	return p
+}
+
 // Load reads the config file over defaults. The second return lists
 // unrecognized keys (typos) that were ignored; fix or remove them.
 func Load() (Config, []string, error) {

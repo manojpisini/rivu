@@ -15,3 +15,14 @@ func TestScore(t *testing.T) {
 		t.Fatalf("score=%d", r.Score)
 	}
 }
+
+func TestCheckWeightsSumTo100(t *testing.T) {
+	r := Run(registry.Project{Path: t.TempDir()})
+	sum := 0
+	for _, c := range r.Checks {
+		sum += c.Weight
+	}
+	if sum != 100 {
+		t.Errorf("check weights sum to %d, want 100", sum)
+	}
+}

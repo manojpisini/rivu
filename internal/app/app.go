@@ -29,6 +29,9 @@ func Open() (*App, error) {
 	if e != nil {
 		return nil, e
 	}
+	if e = config.Validate(c); e != nil {
+		return nil, e
+	}
 	if e = os.MkdirAll(filepath.Dir(c.Data.DBPath), 0755); e != nil {
 		return nil, e
 	}
@@ -40,6 +43,9 @@ func Open() (*App, error) {
 }
 func (a *App) Close() error { return a.Registry.Close() }
 func (a *App) Scan() ([]registry.Project, error) {
+	if e := config.ValidateRoot(a.Config); e != nil {
+		return nil, e
+	}
 	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
 	ps, e := s.Scan(a.Config.Workspace.Root)
 	if e != nil {

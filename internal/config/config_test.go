@@ -101,6 +101,48 @@ func TestLoadWarnsOnUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr bool
+	}{
+		{"defaults pass", func(*Config) {}, false},
+		{"zero max_depth fails", func(c *Config) { c.Scanner.MaxDepth = 0 }, true},
+		{"zero stale days fails", func(c *Config) { c.Flow.StaleThresholdDays = 0 }, true},
+		{"zero source sla fails", func(c *Config) { c.Flow.SourceSLADays = 0 }, true},
+		{"max_depth 1 passes", func(c *Config) { c.Scanner.MaxDepth = 1 }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Default()
+			tt.mutate(&c)
+			err := Validate(c)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	c := Default()
+	c.Workspace.Root = filepath.Join(home, "missing")
+	if err := ValidateRoot(c); err == nil {
+		t.Error("missing root accepted, want error")
+	}
+	if err := os.MkdirAll(c.Workspace.Root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRoot(c); err != nil {
+		t.Errorf("existing root rejected: %v", err)
+	}
+}
+
 func TestSaveAtomicAndPrivate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
