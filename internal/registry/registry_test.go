@@ -2,6 +2,7 @@ package registry
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -328,6 +329,75 @@ func TestDiscoveryRefreshesChannelForStageMismatch(t *testing.T) {
 	got, _ := r.Find("moved")
 	if got.Channel != "00_Source" || got.FlowStage != "active" {
 		t.Errorf("channel not refreshed or stage changed: ch=%q flow=%q", got.Channel, got.FlowStage)
+	}
+}
+
+func TestResolveLadder(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	for i, p := range []Project{
+		{ID: "1111-aaaa", Name: "Web Shop", Slug: "web-shop", Path: "/w1", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true},
+		{ID: "2222-bbbb", Name: "web api", Slug: "web-api", Path: "/w2", Channel: "01_Active", FlowStage: "active", CreatedAt: now, OnDisk: true},
+		{ID: "3333-cccc", Name: "mobile", Slug: "mobile", Path: "/w3", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true},
+	} {
+		if err := r.Upsert(p); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+
+	// Exact slug.
+	if p, err := r.Resolve("web-shop"); err != nil || p.Slug != "web-shop" {
+		t.Errorf("exact slug: p=%+v err=%v", p, err)
+	}
+	// Case-insensitive exact name.
+	if p, err := r.Resolve("WEB API"); err != nil || p.Slug != "web-api" {
+		t.Errorf("ci name: p=%+v err=%v", p, err)
+	}
+	// Unique id prefix.
+	if p, err := r.Resolve("1111"); err != nil || p.Slug != "web-shop" {
+		t.Errorf("id prefix: p=%+v err=%v", p, err)
+	}
+	// Fuzzy substring.
+	if p, err := r.Resolve("shop"); err != nil || p.Slug != "web-shop" {
+		t.Errorf("fuzzy: p=%+v err=%v", p, err)
+	}
+	// Not found, with did-you-mean hint.
+	_, err = r.Resolve("web-shpp")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "web-shop") {
+		t.Errorf("missing did-you-mean hint: %v", err)
+	}
+}
+
+func TestResolveAmbiguousListsCandidates(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	for i, p := range []Project{
+		{ID: "id-1", Name: "web", Slug: "web-a", Path: "/a", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true},
+		{ID: "id-2", Name: "web", Slug: "web-b", Path: "/b", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true},
+	} {
+		if err := r.Upsert(p); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	_, err = r.Resolve("web")
+	if !errors.Is(err, ErrAmbiguous) {
+		t.Fatalf("want ErrAmbiguous, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "web-a") || !strings.Contains(err.Error(), "web-b") {
+		t.Errorf("candidates not listed: %v", err)
 	}
 }
 

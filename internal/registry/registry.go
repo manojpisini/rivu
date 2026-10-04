@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -375,10 +377,6 @@ func (r *Registry) States() (States, error) {
 	return s, nil
 }
 
-func (r *Registry) Find(q string) (Project, error) {
-	row := r.DB.QueryRow(`SELECT `+cols+` FROM projects WHERE slug=? OR id=? OR name=? LIMIT 1`, q, q, q)
-	return scanProject(row)
-}
 func (r *Registry) Current() (Project, error) {
 	var id string
 	if err := r.DB.QueryRow(`SELECT value FROM settings WHERE key='current_project_id'`).Scan(&id); err != nil {
@@ -405,17 +403,132 @@ func (r *Registry) SetHealth(id string, score int) error {
 	_, err := r.DB.Exec(`UPDATE projects SET health_score=? WHERE id=?`, score, id)
 	return err
 }
-func (r *Registry) MarkMissing() error {
-	_, err := r.DB.Exec(`UPDATE projects SET on_disk=0`)
-	return err
+
+// Typed sentinel errors for project lookup.
+var (
+	ErrNotFound  = errors.New("project not found")
+	ErrAmbiguous = errors.New("ambiguous project reference")
+)
+
+func (r *Registry) Find(q string) (Project, error) {
+	row := r.DB.QueryRow(`SELECT `+cols+` FROM projects WHERE slug=? OR id=? OR name=? LIMIT 1`, q, q, q)
+	p, err := scanProject(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, fmt.Errorf("%w: no project matches %q", ErrNotFound, q)
+	}
+	return p, err
 }
+
+// Resolve finds a project for a user-supplied query. With an empty query it
+// returns Current. Otherwise it walks a ladder: exact slug, exact id, unique
+// id prefix, case-insensitive name, unique prefix, then fuzzy substring.
+// Exactly one match returns the project; several return ErrAmbiguous with
+// the candidates listed; none return ErrNotFound with a did-you-mean hint.
 func (r *Registry) Resolve(q string) (Project, error) {
-	if q != "" {
-		return r.Find(q)
+	if q == "" {
+		p, err := r.Current()
+		if err != nil {
+			return Project{}, fmt.Errorf("no Current project; pass a project name or use rivu open <project>")
+		}
+		return p, nil
 	}
-	p, err := r.Current()
+	ps, err := r.List()
 	if err != nil {
-		return p, fmt.Errorf("no Current project; pass a project name or use rivu open <project>")
+		return Project{}, err
 	}
-	return p, nil
+	qf := strings.ToLower(q)
+	for _, match := range []func(Project) bool{
+		func(p Project) bool { return p.Slug == q },
+		func(p Project) bool { return p.ID == q },
+		func(p Project) bool { return strings.HasPrefix(p.ID, q) },
+		func(p Project) bool { return strings.EqualFold(p.Name, q) },
+		func(p Project) bool {
+			return strings.HasPrefix(p.Slug, qf) || strings.HasPrefix(p.ID, q) || strings.HasPrefix(strings.ToLower(p.Name), qf)
+		},
+	} {
+		var hits []Project
+		for _, p := range ps {
+			if match(p) {
+				hits = append(hits, p)
+			}
+		}
+		switch len(hits) {
+		case 1:
+			return hits[0], nil
+		case 0:
+			// fall through to the next rung
+		default:
+			return Project{}, ambiguousErr(q, hits)
+		}
+	}
+	var hits []Project
+	for _, p := range ps {
+		if strings.Contains(strings.ToLower(p.Slug), qf) || strings.Contains(strings.ToLower(p.Name), qf) {
+			hits = append(hits, p)
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return Project{}, fmt.Errorf("%w: no project matches %q%s", ErrNotFound, q, didYouMean(qf, ps))
+	default:
+		return Project{}, ambiguousErr(q, hits)
+	}
+}
+
+func ambiguousErr(q string, hits []Project) error {
+	names := make([]string, 0, len(hits))
+	for _, p := range hits {
+		names = append(names, p.Slug)
+	}
+	sort.Strings(names)
+	return fmt.Errorf("%w: %q matches %d projects: %s", ErrAmbiguous, q, len(hits), strings.Join(names, ", "))
+}
+
+// didYouMean suggests up to three slugs within edit distance 2 of q.
+func didYouMean(qf string, ps []Project) string {
+	type cand struct {
+		slug string
+		d    int
+	}
+	var cs []cand
+	for _, p := range ps {
+		if d := levenshtein(qf, strings.ToLower(p.Slug)); d <= 2 {
+			cs = append(cs, cand{p.Slug, d})
+		}
+	}
+	if len(cs) == 0 {
+		return ""
+	}
+	sort.Slice(cs, func(i, j int) bool { return cs[i].d < cs[j].d })
+	if len(cs) > 3 {
+		cs = cs[:3]
+	}
+	names := make([]string, len(cs))
+	for i, c := range cs {
+		names[i] = c.slug
+	}
+	return fmt.Sprintf(" — did you mean: %s?", strings.Join(names, ", "))
+}
+
+func levenshtein(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	cur := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, min(cur[j-1]+1, prev[j-1]+cost))
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(rb)]
 }
