@@ -38,7 +38,7 @@ func Build(p registry.Project) error {
 	if stack == "" {
 		stack = "Not detected"
 	}
-	body := fmt.Sprintf("# Project Map: %s\n\n## Purpose\nSee `.metadata/overview.md`.\n\n## Stack\n%s\n\n## Important files\n%s\n\n## Important directories\n%s\n\n## Generated/vendor directories\n`.git`, `node_modules`, `vendor`, `target`, `dist`, `build`, caches.\n\n## Suggested first-read order\n1. README and manifest files\n2. Source entrypoints\n3. Tests\n4. Build and CI configuration\n", p.Name, list(files), list(dirs))
+	body := fmt.Sprintf("# Project Map: %s\n\n## Purpose\nSee `.metadata/overview.md`.\n\n## Stack\n%s\n\n## Important files\n%s\n\n## Important directories\n%s\n\n## Generated/vendor directories\n`.git`, `node_modules`, `vendor`, `target`, `dist`, `build`, caches.\n\n## Suggested first-read order\n1. README and manifest files\n2. Source entrypoints\n3. Tests\n4. Build and CI configuration\n", p.Name, stack, list(files), list(dirs))
 	return os.WriteFile(filepath.Join(d, "PROJECT_MAP.md"), []byte(body), 0644)
 }
 func list(v []string) string {
