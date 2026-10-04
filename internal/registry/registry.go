@@ -21,10 +21,13 @@ type Project struct {
 type Registry struct{ DB *sql.DB }
 
 func Open(path string) (*Registry, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_time_format=sqlite", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	// Pragmas apply per connection; one connection keeps them in force.
+	db.SetMaxOpenConns(1)
 	r := &Registry{DB: db}
 	if err = r.migrate(); err != nil {
 		db.Close()
