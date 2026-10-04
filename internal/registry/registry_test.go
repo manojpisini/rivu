@@ -2,6 +2,7 @@ package registry
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -141,6 +142,50 @@ func TestDiscoverNeverTouchesRegistryOwnedFields(t *testing.T) {
 	}
 	if p.Language != "rust" || !p.HasGit || p.Stack == nil || p.Stack[0] != "cargo" {
 		t.Errorf("discovery fields not refreshed: %+v", p)
+	}
+}
+
+func TestDuplicateFolderNamesGetStableDistinctSlugs(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	root := t.TempDir()
+	for _, ch := range []string{"sandbox", "archive"} {
+		if err := os.MkdirAll(filepath.Join(root, ch, "app"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	for i, ch := range []string{"sandbox", "archive"} {
+		p := Project{ID: fmt.Sprintf("id-%d", i), Name: "app", Slug: "app", Path: filepath.Join(root, ch, "app"), Channel: ch, FlowStage: "source", CreatedAt: now, OnDisk: true}
+		if err := r.Discover(p); err != nil {
+			t.Fatalf("discover %s: %v", ch, err)
+		}
+	}
+	// Rescan must not shuffle the persisted slugs.
+	for i, ch := range []string{"sandbox", "archive"} {
+		p := Project{ID: fmt.Sprintf("id-%d", i), Name: "app", Slug: "app", Path: filepath.Join(root, ch, "app"), Channel: ch, FlowStage: "source", CreatedAt: now, OnDisk: true}
+		if err := r.Discover(p); err != nil {
+			t.Fatalf("rescan %s: %v", ch, err)
+		}
+	}
+
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d rows, want 2", len(list))
+	}
+	slugs := map[string]bool{}
+	for _, p := range list {
+		slugs[p.Slug] = true
+	}
+	if !slugs["app"] || !slugs["app-2"] {
+		t.Errorf("slugs = %v, want app and app-2", slugs)
 	}
 }
 
