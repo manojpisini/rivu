@@ -7,8 +7,10 @@ import (
 	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/doctor"
 	"github.com/manojpisini/rivu/internal/mapgen"
+	"github.com/manojpisini/rivu/internal/pathsafe"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/scanner"
+	"github.com/manojpisini/rivu/internal/slug"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,9 +65,6 @@ func (a *App) Scan() ([]registry.Project, error) {
 	}
 	return ps, nil
 }
-func slug(s string) string {
-	return strings.Trim(strings.ToLower(strings.ReplaceAll(s, " ", "-")), "-")
-}
 func channel(flow string) string { return registry.ChannelForFlow(flow) }
 func validFlow(s string) bool {
 	switch s {
@@ -84,9 +83,17 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 	if !validFlow(flow) {
 		return registry.Project{}, fmt.Errorf("invalid flow stage %q", flow)
 	}
+	s, e := slug.Make(name)
+	if e != nil {
+		return registry.Project{}, fmt.Errorf("invalid project name: %w", e)
+	}
 	ch := channel(flow)
-	path := filepath.Join(a.Config.Workspace.Root, ch, slug(name))
-	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: slug(name), Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
+	chDir := filepath.Join(a.Config.Workspace.Root, ch)
+	path := filepath.Join(chDir, s)
+	if !pathsafe.Contained(chDir, path) {
+		return registry.Project{}, fmt.Errorf("destination %s escapes channel folder %s", path, chDir)
+	}
+	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
 	if dry {
 		return p, nil
 	}
