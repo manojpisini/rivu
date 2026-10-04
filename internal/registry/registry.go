@@ -36,9 +36,69 @@ func Open(path string) (*Registry, error) {
 	return r, nil
 }
 func (r *Registry) Close() error { return r.DB.Close() }
+
+// migrations[i] upgrades the database from version i to i+1.
+// Schema v1 is frozen after P1.10; append only, never edit a released entry.
+// New entries follow AGENTS.md §9: one transaction each, back up first.
+var migrations = []string{
+	// v1 — initial schema (idempotent so pre-versioning databases adopt it).
+	`CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,path TEXT NOT NULL UNIQUE,channel TEXT NOT NULL,flow_stage TEXT NOT NULL,language TEXT,stack TEXT,has_git INTEGER DEFAULT 0,has_bank INTEGER DEFAULT 0,has_map INTEGER DEFAULT 0,health_score INTEGER DEFAULT 0,created_at DATETIME,last_opened_at DATETIME,last_scanned_at DATETIME,on_disk INTEGER DEFAULT 1,registered INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
+CREATE TABLE IF NOT EXISTS confluences(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,notes TEXT);
+CREATE TABLE IF NOT EXISTS project_confluences(project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,confluence_id TEXT REFERENCES confluences(id) ON DELETE CASCADE,PRIMARY KEY(project_id,confluence_id));
+CREATE TABLE IF NOT EXISTS health_snapshots(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,score INTEGER,taken_at DATETIME);
+CREATE TABLE IF NOT EXISTS activity_log(id TEXT PRIMARY KEY,project_id TEXT,event TEXT,occurred_at DATETIME);`,
+}
+
 func (r *Registry) migrate() error {
-	_, err := r.DB.Exec(`PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,path TEXT NOT NULL UNIQUE,channel TEXT NOT NULL,flow_stage TEXT NOT NULL,language TEXT,stack TEXT,has_git INTEGER DEFAULT 0,has_bank INTEGER DEFAULT 0,has_map INTEGER DEFAULT 0,health_score INTEGER DEFAULT 0,created_at DATETIME,last_opened_at DATETIME,last_scanned_at DATETIME,on_disk INTEGER DEFAULT 1,registered INTEGER DEFAULT 1); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE IF NOT EXISTS confluences(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,notes TEXT); CREATE TABLE IF NOT EXISTS project_confluences(project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,confluence_id TEXT REFERENCES confluences(id) ON DELETE CASCADE,PRIMARY KEY(project_id,confluence_id)); CREATE TABLE IF NOT EXISTS health_snapshots(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,score INTEGER,taken_at DATETIME); CREATE TABLE IF NOT EXISTS activity_log(id TEXT PRIMARY KEY,project_id TEXT,event TEXT,occurred_at DATETIME);`)
-	return err
+	var version int
+	if err := r.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version > len(migrations) {
+		return fmt.Errorf("database schema v%d is newer than this rivu build supports (v%d) — upgrade rivu", version, len(migrations))
+	}
+	for i := version; i < len(migrations); i++ {
+		if err := r.backupBefore(i); err != nil {
+			return err
+		}
+		tx, err := r.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("migrate to v%d: %w", i+1, err)
+		}
+		if _, err = tx.Exec(migrations[i]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate to v%d: %w", i+1, err)
+		}
+		if _, err = tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migrate to v%d: %w", i+1, err)
+		}
+		if err = tx.Commit(); err != nil {
+			return fmt.Errorf("migrate to v%d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+// backupBefore snapshots an existing schema to <db>.v<i>.bak before migration.
+// Fresh (empty) databases need no backup.
+func (r *Registry) backupBefore(version int) error {
+	var tables int
+	if err := r.DB.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables); err != nil {
+		return fmt.Errorf("inspect schema: %w", err)
+	}
+	if tables == 0 {
+		return nil
+	}
+	var dbfile string
+	if err := r.DB.QueryRow(`PRAGMA database_list`).Scan(new(int), new(string), &dbfile); err != nil || dbfile == "" {
+		return nil
+	}
+	if _, err := r.DB.Exec(`VACUUM INTO ?`, fmt.Sprintf("%s.v%d.bak", dbfile, version)); err != nil {
+		return fmt.Errorf("back up database before migration: %w", err)
+	}
+	return nil
 }
 func b(v bool) int {
 	if v {

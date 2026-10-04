@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,6 +27,66 @@ func TestOpenAppliesPragmas(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("PRAGMA %s = %q, want %q", tc.pragma, got, tc.want)
 		}
+	}
+}
+
+func TestMigrateSetsUserVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rivu.db")
+	r, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	if err := r.DB.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != len(migrations) {
+		t.Errorf("user_version = %d, want %d", v, len(migrations))
+	}
+	r.Close()
+
+	// Re-open must be a no-op.
+	if r, err = Open(path); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	r.Close()
+}
+
+func TestMigrateAdoptsLegacyDatabaseWithBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rivu.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pre-versioning layout: tables present, user_version still 0.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,path TEXT NOT NULL UNIQUE,channel TEXT NOT NULL,flow_stage TEXT NOT NULL,language TEXT,stack TEXT,has_git INTEGER DEFAULT 0,has_bank INTEGER DEFAULT 0,has_map INTEGER DEFAULT 0,health_score INTEGER DEFAULT 0,created_at DATETIME,last_opened_at DATETIME,last_scanned_at DATETIME,on_disk INTEGER DEFAULT 1,registered INTEGER DEFAULT 1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	r, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open legacy db: %v", err)
+	}
+	r.Close()
+	if _, err := os.Stat(path + ".v0.bak"); err != nil {
+		t.Errorf("expected backup before migrating legacy db: %v", err)
+	}
+}
+
+func TestMigrateRejectsNewerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rivu.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 99`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if _, err := Open(path); err == nil {
+		t.Fatal("Open accepted database from newer schema, want error")
 	}
 }
 
