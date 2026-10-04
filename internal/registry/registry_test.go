@@ -401,6 +401,33 @@ func TestResolveAmbiguousListsCandidates(t *testing.T) {
 	}
 }
 
+func TestListUsesLifecycleOrder(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	// Insert in reverse lifecycle order; alphabetical would differ too.
+	for i, flow := range []string{"delta", "research", "maintenance", "active", "source"} {
+		p := Project{ID: fmt.Sprintf("id-%d", i), Name: "p", Slug: flow, Path: "/" + flow, Channel: "00_Source", FlowStage: flow, CreatedAt: now, OnDisk: true}
+		if err := r.Upsert(p); err != nil {
+			t.Fatalf("seed %s: %v", flow, err)
+		}
+	}
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"source", "active", "maintenance", "research", "delta"}
+	for i, w := range want {
+		if list[i].FlowStage != w {
+			t.Fatalf("order[%d] = %s, want %s (full: %v)", i, list[i].FlowStage, w, list)
+		}
+	}
+}
+
 func TestMigrateSetsUserVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rivu.db")
 	r, err := Open(path)

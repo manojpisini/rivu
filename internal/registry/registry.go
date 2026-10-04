@@ -303,7 +303,8 @@ func scanProject(s interface{ Scan(...any) error }) (Project, error) {
 const cols = `id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered`
 
 func (r *Registry) List() ([]Project, error) {
-	rows, err := r.DB.Query(`SELECT ` + cols + ` FROM projects ORDER BY flow_stage,name`)
+	// Lifecycle order: source, active, maintenance, research, delta (spec 1.2.1).
+	rows, err := r.DB.Query(`SELECT ` + cols + ` FROM projects ORDER BY CASE flow_stage WHEN 'source' THEN 0 WHEN 'active' THEN 1 WHEN 'maintenance' THEN 2 WHEN 'research' THEN 3 WHEN 'delta' THEN 4 ELSE 5 END, name`)
 	if err != nil {
 		return nil, err
 	}
