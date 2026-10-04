@@ -116,8 +116,8 @@ func TestDiscoverNeverTouchesRegistryOwnedFields(t *testing.T) {
 
 	// Scanner output: zero health, folder-derived name/stage, new language.
 	scanned := Project{ID: "fresh-id", Name: "folder", Slug: "folder", Path: dir, Channel: "sandbox", FlowStage: "source", Language: "rust", Stack: []string{"cargo"}, HasGit: true, LastScannedAt: time.Now(), OnDisk: true}
-	if err := r.Discover(scanned); err != nil {
-		t.Fatal(err)
+	if warns, err := r.ApplyDiscovery([]Project{scanned}); err != nil || len(warns) != 0 {
+		t.Fatalf("ApplyDiscovery: warns=%v err=%v", warns, err)
 	}
 
 	got, err := r.List()
@@ -159,18 +159,19 @@ func TestDuplicateFolderNamesGetStableDistinctSlugs(t *testing.T) {
 		}
 	}
 	now := time.Now()
-	for i, ch := range []string{"sandbox", "archive"} {
-		p := Project{ID: fmt.Sprintf("id-%d", i), Name: "app", Slug: "app", Path: filepath.Join(root, ch, "app"), Channel: ch, FlowStage: "source", CreatedAt: now, OnDisk: true}
-		if err := r.Discover(p); err != nil {
-			t.Fatalf("discover %s: %v", ch, err)
+	scan := func() []Project {
+		var ps []Project
+		for i, ch := range []string{"sandbox", "archive"} {
+			ps = append(ps, Project{ID: fmt.Sprintf("id-%d", i), Name: "app", Slug: "app", Path: filepath.Join(root, ch, "app"), Channel: ch, FlowStage: "source", CreatedAt: now, OnDisk: true})
 		}
+		return ps
+	}
+	if warns, err := r.ApplyDiscovery(scan()); err != nil || len(warns) != 0 {
+		t.Fatalf("first scan: warns=%v err=%v", warns, err)
 	}
 	// Rescan must not shuffle the persisted slugs.
-	for i, ch := range []string{"sandbox", "archive"} {
-		p := Project{ID: fmt.Sprintf("id-%d", i), Name: "app", Slug: "app", Path: filepath.Join(root, ch, "app"), Channel: ch, FlowStage: "source", CreatedAt: now, OnDisk: true}
-		if err := r.Discover(p); err != nil {
-			t.Fatalf("rescan %s: %v", ch, err)
-		}
+	if warns, err := r.ApplyDiscovery(scan()); err != nil || len(warns) != 0 {
+		t.Fatalf("rescan: warns=%v err=%v", warns, err)
 	}
 
 	list, err := r.List()
@@ -223,6 +224,110 @@ func TestApplyDiscoveryWarnsInsteadOfAborting(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Slug != "a" {
 		t.Errorf("first project not committed: %+v", list)
+	}
+}
+
+func TestScanFlagsVanishedProjectsMissing(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	root := t.TempDir()
+	gone := filepath.Join(root, "gone")
+	stays := filepath.Join(root, "stays")
+	now := time.Now()
+	for _, d := range []string{gone, stays} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, d := range []string{gone, stays} {
+		if err := r.Upsert(Project{ID: fmt.Sprintf("id-%d", i), Name: "p", Slug: fmt.Sprintf("p-%d", i), Path: d, Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true, Registered: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Next scan sees only "stays": "gone" must be flagged missing.
+	if warns, err := r.ApplyDiscovery([]Project{{ID: "id-1", Name: "p", Slug: "p-1", Path: stays, Channel: "00_Source", FlowStage: "source", LastScannedAt: now, OnDisk: true}}); err != nil || len(warns) != 0 {
+		t.Fatalf("ApplyDiscovery: warns=%v err=%v", warns, err)
+	}
+	st, err := r.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Missing) != 1 || st.Missing[0].Slug != "p-0" {
+		t.Errorf("missing = %+v, want p-0", st.Missing)
+	}
+	if p, _ := r.Find("p-1"); !p.OnDisk {
+		t.Errorf("found project flagged missing: %+v", p)
+	}
+}
+
+func TestStatesCategorizeMismatches(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	rows := []Project{
+		{ID: "m", Name: "m", Slug: "m", Path: "/m", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: false, Registered: true},
+		{ID: "u", Name: "u", Slug: "u", Path: "/u", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true, Registered: false},
+		{ID: "s", Name: "s", Slug: "s", Path: "/s", Channel: "00_Source", FlowStage: "active", CreatedAt: now, OnDisk: true, Registered: true},
+		{ID: "ok", Name: "ok", Slug: "ok", Path: "/ok", Channel: "01_Active", FlowStage: "active", CreatedAt: now, OnDisk: true, Registered: true},
+	}
+	if _, err := r.ApplyDiscovery(rows); err != nil {
+		t.Fatal(err)
+	}
+	st, err := r.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Missing) != 1 || st.Missing[0].ID != "m" {
+		t.Errorf("missing = %+v", st.Missing)
+	}
+	if len(st.Unregistered) != 1 || st.Unregistered[0].ID != "u" {
+		t.Errorf("unregistered = %+v", st.Unregistered)
+	}
+	if len(st.StageMismatch) != 1 || st.StageMismatch[0].ID != "s" {
+		t.Errorf("stageMismatch = %+v", st.StageMismatch)
+	}
+}
+
+func TestDiscoveryRefreshesChannelForStageMismatch(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	dir := filepath.Join(t.TempDir(), "moved")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// Registered as active; folder now sits in 00_Source.
+	p := Project{ID: "id-1", Name: "moved", Slug: "moved", Path: dir, Channel: "01_Active", FlowStage: "active", CreatedAt: now, OnDisk: true, Registered: true}
+	if err := r.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+	p.Channel = "00_Source"
+	if warns, err := r.ApplyDiscovery([]Project{p}); err != nil || len(warns) != 0 {
+		t.Fatalf("ApplyDiscovery: warns=%v err=%v", warns, err)
+	}
+	st, err := r.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.StageMismatch) != 1 {
+		t.Fatalf("stageMismatch = %+v, want 1", st.StageMismatch)
+	}
+	got, _ := r.Find("moved")
+	if got.Channel != "00_Source" || got.FlowStage != "active" {
+		t.Errorf("channel not refreshed or stage changed: ch=%q flow=%q", got.Channel, got.FlowStage)
 	}
 }
 

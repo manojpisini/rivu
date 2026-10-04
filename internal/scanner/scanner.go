@@ -77,21 +77,6 @@ func classify(path string) (string, []string, bool) {
 	}
 	return lang, stack, strong
 }
-func flowFromChannel(c string) string {
-	switch c {
-	case "00_Source":
-		return "source"
-	case "01_Active":
-		return "active"
-	case "02_Maintenance":
-		return "maintenance"
-	case "03_Research":
-		return "research"
-	case "90_Delta":
-		return "delta"
-	}
-	return "source"
-}
 func (s *Scanner) Scan(root string) ([]registry.Project, error) {
 	var out []registry.Project
 	root = filepath.Clean(root)
@@ -116,7 +101,7 @@ func (s *Scanner) Scan(root string) ([]registry.Project, error) {
 					channel = parts[0]
 				}
 				now := time.Now()
-				out = append(out, registry.Project{ID: uuid.NewString(), Name: d.Name(), Slug: slug(d.Name()), Path: path, Channel: channel, FlowStage: flowFromChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: true})
+				out = append(out, registry.Project{ID: uuid.NewString(), Name: d.Name(), Slug: slug(d.Name()), Path: path, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
 				return filepath.SkipDir
 			}
 		}

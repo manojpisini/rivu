@@ -128,13 +128,15 @@ var pathMatchClause = func() string {
 }()
 
 var (
-	updateDiscoverySQL = `UPDATE projects SET language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE ` + pathMatchClause
+	updateDiscoverySQL = `UPDATE projects SET channel=?,language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE ` + pathMatchClause
 	insertProjectSQL   = `INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	markMissingSQL     = `UPDATE projects SET on_disk=0 WHERE on_disk=1`
 )
 
 // ApplyDiscovery reconciles every scanned project in one transaction with
-// prepared statements. Per-project failures come back as warnings instead of
-// aborting the scan (B-02); a non-nil error means nothing was committed.
+// prepared statements: everything first flagged missing, then refreshed or
+// inserted. Per-project failures come back as warnings instead of aborting
+// the scan (B-02); a non-nil error means nothing was committed.
 func (r *Registry) ApplyDiscovery(ps []Project) ([]error, error) {
 	tx, err := r.DB.Begin()
 	if err != nil {
@@ -142,6 +144,9 @@ func (r *Registry) ApplyDiscovery(ps []Project) ([]error, error) {
 	}
 	defer tx.Rollback()
 
+	if _, err = tx.Exec(markMissingSQL); err != nil {
+		return nil, fmt.Errorf("mark missing: %w", err)
+	}
 	upd, err := tx.Prepare(updateDiscoverySQL)
 	if err != nil {
 		return nil, err
@@ -182,7 +187,7 @@ func discoverTx(tx *sql.Tx, upd, ins *sql.Stmt, p Project) error {
 // discoveryUpdateArgs builds the arguments for updateDiscoverySQL.
 func discoveryUpdateArgs(p Project) []any {
 	st, _ := json.Marshal(p.Stack)
-	return []any{p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path)}
+	return []any{p.Channel, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path)}
 }
 
 func updatedDiscovery(res sql.Result, err error) (bool, error) {
@@ -191,20 +196,6 @@ func updatedDiscovery(res sql.Result, err error) (bool, error) {
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
-}
-
-// Discover registers a scanned project or refreshes its discovery fields.
-// Registry-owned fields (health_score, name, slug, flow_stage, created_at)
-// are never written by a rescan — registry is truth, filesystem is discovery.
-func (r *Registry) Discover(p Project) error {
-	warns, err := r.ApplyDiscovery([]Project{p})
-	if err != nil {
-		return err
-	}
-	if len(warns) > 0 {
-		return warns[0]
-	}
-	return nil
 }
 
 // UpdateDiscovery refreshes only filesystem-derived fields for the row
@@ -325,6 +316,65 @@ func (r *Registry) List() ([]Project, error) {
 	}
 	return out, rows.Err()
 }
+
+// ChannelForFlow maps a Flow stage to its workspace channel folder (spec 3.1).
+func ChannelForFlow(flow string) string {
+	switch flow {
+	case "active":
+		return "01_Active"
+	case "maintenance":
+		return "02_Maintenance"
+	case "research":
+		return "03_Research"
+	case "delta":
+		return "90_Delta"
+	}
+	return "00_Source"
+}
+
+// FlowForChannel maps a workspace channel folder to its default Flow stage.
+func FlowForChannel(c string) string {
+	switch c {
+	case "01_Active":
+		return "active"
+	case "02_Maintenance":
+		return "maintenance"
+	case "03_Research":
+		return "research"
+	case "90_Delta":
+		return "delta"
+	}
+	return "source"
+}
+
+// States groups projects into the three registry/filesystem mismatch
+// categories of spec 1.4.2. Never silently resolved — only reported.
+type States struct {
+	Missing       []Project // registered anywhere but not on disk anymore
+	Unregistered  []Project // on disk, not yet registered with rivu
+	StageMismatch []Project // flow_stage disagrees with the channel folder
+}
+
+// States reports the current mismatch states across all projects.
+func (r *Registry) States() (States, error) {
+	ps, err := r.List()
+	if err != nil {
+		return States{}, err
+	}
+	var s States
+	for _, p := range ps {
+		switch {
+		case !p.OnDisk:
+			s.Missing = append(s.Missing, p)
+		case !p.Registered:
+			s.Unregistered = append(s.Unregistered, p)
+		case FlowForChannel(p.Channel) != p.FlowStage:
+			s.StageMismatch = append(s.StageMismatch, p)
+		}
+	}
+	return s, nil
+}
+
 func (r *Registry) Find(q string) (Project, error) {
 	row := r.DB.QueryRow(`SELECT `+cols+` FROM projects WHERE slug=? OR id=? OR name=? LIMIT 1`, q, q, q)
 	return scanProject(row)

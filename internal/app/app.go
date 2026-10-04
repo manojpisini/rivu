@@ -66,21 +66,7 @@ func (a *App) Scan() ([]registry.Project, error) {
 func slug(s string) string {
 	return strings.Trim(strings.ToLower(strings.ReplaceAll(s, " ", "-")), "-")
 }
-func channel(flow string) string {
-	switch flow {
-	case "source":
-		return "00_Source"
-	case "active":
-		return "01_Active"
-	case "maintenance":
-		return "02_Maintenance"
-	case "research":
-		return "03_Research"
-	case "delta":
-		return "90_Delta"
-	}
-	return "00_Source"
-}
+func channel(flow string) string { return registry.ChannelForFlow(flow) }
 func validFlow(s string) bool {
 	switch s {
 	case "source", "active", "maintenance", "research", "delta":
