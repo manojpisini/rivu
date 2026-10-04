@@ -45,6 +45,9 @@ type Config struct {
 }
 
 func Dir() (string, error) {
+	if h := os.Getenv("RIVU_HOME"); h != "" {
+		return expand(h), nil
+	}
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -52,6 +55,9 @@ func Dir() (string, error) {
 	return filepath.Join(h, ".rivu"), nil
 }
 func Path() (string, error) {
+	if p := os.Getenv("RIVU_CONFIG"); p != "" {
+		return expand(p), nil
+	}
 	d, err := Dir()
 	if err != nil {
 		return "", err
