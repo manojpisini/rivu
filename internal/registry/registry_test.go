@@ -483,6 +483,15 @@ func TestMigrateSetsUserVersion(t *testing.T) {
 	if r, err = Open(path); err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
+	for _, idx := range []string{"idx_projects_flow_stage", "idx_projects_last_opened", "idx_snapshots_project_taken"} {
+		var n int
+		if err := r.DB.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?`, idx).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("index %s missing", idx)
+		}
+	}
 	r.Close()
 }
 

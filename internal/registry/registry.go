@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS confluences(id TEXT PRIMARY KEY,name TEXT NOT NULL UN
 CREATE TABLE IF NOT EXISTS project_confluences(project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,confluence_id TEXT REFERENCES confluences(id) ON DELETE CASCADE,PRIMARY KEY(project_id,confluence_id));
 CREATE TABLE IF NOT EXISTS health_snapshots(id TEXT PRIMARY KEY,project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,score INTEGER,taken_at DATETIME);
 CREATE TABLE IF NOT EXISTS activity_log(id TEXT PRIMARY KEY,project_id TEXT,event TEXT,occurred_at DATETIME);`,
+
+	// v2 — read-path indexes (P1.19).
+	`CREATE INDEX IF NOT EXISTS idx_projects_flow_stage ON projects(flow_stage);
+CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_project_taken ON health_snapshots(project_id,taken_at);`,
 }
 
 func (r *Registry) migrate() error {
