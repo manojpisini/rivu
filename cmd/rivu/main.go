@@ -32,6 +32,22 @@ func withApp(fn func(*app.App) error) func(*cobra.Command, []string) error {
 }
 func root() *cobra.Command {
 	r := &cobra.Command{Use: "rivu", Short: "Your project filesystem, mapped and flowing", Version: fmt.Sprintf("%s (%s, %s)", version, commit, date), SilenceUsage: true}
+	var home, cfgFile string
+	r.PersistentFlags().StringVar(&home, "home", "", "set Rivu home directory (overrides RIVU_HOME)")
+	r.PersistentFlags().StringVar(&cfgFile, "config", "", "set config file path (overrides RIVU_CONFIG)")
+	r.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		if home != "" {
+			if err := os.Setenv("RIVU_HOME", home); err != nil {
+				return fmt.Errorf("apply --home: %w", err)
+			}
+		}
+		if cfgFile != "" {
+			if err := os.Setenv("RIVU_CONFIG", cfgFile); err != nil {
+				return fmt.Errorf("apply --config: %w", err)
+			}
+		}
+		return nil
+	}
 	r.RunE = withApp(func(a *app.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
