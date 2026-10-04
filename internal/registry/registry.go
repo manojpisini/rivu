@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -402,6 +403,20 @@ func (r *Registry) UpdatePathFlow(id, path, channel, flow string) error {
 }
 func (r *Registry) SetHealth(id string, score int) error {
 	_, err := r.DB.Exec(`UPDATE projects SET health_score=? WHERE id=?`, score, id)
+	return err
+}
+
+// MarkOpened records that a project was opened just now (R-09).
+func (r *Registry) MarkOpened(id string) error {
+	_, err := r.DB.Exec(`UPDATE projects SET last_opened_at=? WHERE id=?`, time.Now(), id)
+	return err
+}
+
+// LogActivity appends an event to activity_log (R-08). Events are short
+// vocabulary words: opened, sourced, flowed, health, map.
+func (r *Registry) LogActivity(projectID, event string) error {
+	_, err := r.DB.Exec(`INSERT INTO activity_log(id,project_id,event,occurred_at) VALUES(?,?,?,?)`,
+		uuid.NewString(), projectID, event, time.Now())
 	return err
 }
 

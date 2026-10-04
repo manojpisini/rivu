@@ -428,6 +428,42 @@ func TestListUsesLifecycleOrder(t *testing.T) {
 	}
 }
 
+func TestOpenRecordsTimestampAndActivity(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now().Add(-time.Hour)
+	if err := r.Upsert(Project{ID: "id-1", Name: "p", Slug: "p", Path: "/p", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Add(-time.Second)
+	if err := r.MarkOpened("id-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.LogActivity("id-1", "opened"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := r.Find("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.LastOpenedAt.Before(before) {
+		t.Errorf("last_opened_at not updated: %v", p.LastOpenedAt)
+	}
+	var event, projectID string
+	var occurred time.Time
+	if err := r.DB.QueryRow(`SELECT project_id,event,occurred_at FROM activity_log`).Scan(&projectID, &event, &occurred); err != nil {
+		t.Fatal(err)
+	}
+	if projectID != "id-1" || event != "opened" || occurred.Before(before) {
+		t.Errorf("activity row = (%s, %s, %v)", projectID, event, occurred)
+	}
+}
+
 func TestMigrateSetsUserVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rivu.db")
 	r, err := Open(path)

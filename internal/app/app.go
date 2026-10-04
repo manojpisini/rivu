@@ -117,6 +117,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 		return p, e
 	}
 	_ = a.Registry.SetCurrent(p.ID)
+	_ = a.Registry.LogActivity(p.ID, "sourced")
 	return p, nil
 }
 func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
@@ -189,6 +190,8 @@ func (a *App) OpenProject(q string) error {
 		return e
 	}
 	_ = a.Registry.SetCurrent(p.ID)
+	_ = a.Registry.MarkOpened(p.ID)
+	_ = a.Registry.LogActivity(p.ID, "opened")
 	editor := a.Config.Editors.Default
 	if editor == "${EDITOR}" || editor == "" {
 		editor = os.Getenv("EDITOR")
