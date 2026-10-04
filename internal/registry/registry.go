@@ -127,31 +127,90 @@ var pathMatchClause = func() string {
 	return `path=?`
 }()
 
-// Discover registers a scanned project or refreshes its discovery fields.
-// Registry-owned fields (health_score, name, slug, flow_stage, created_at)
-// are never written by a rescan — registry is truth, filesystem is discovery.
-func (r *Registry) Discover(p Project) error {
-	updated, err := r.UpdateDiscovery(p)
+var (
+	updateDiscoverySQL = `UPDATE projects SET language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE ` + pathMatchClause
+	insertProjectSQL   = `INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+)
+
+// ApplyDiscovery reconciles every scanned project in one transaction with
+// prepared statements. Per-project failures come back as warnings instead of
+// aborting the scan (B-02); a non-nil error means nothing was committed.
+func (r *Registry) ApplyDiscovery(ps []Project) ([]error, error) {
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	upd, err := tx.Prepare(updateDiscoverySQL)
+	if err != nil {
+		return nil, err
+	}
+	defer upd.Close()
+	ins, err := tx.Prepare(insertProjectSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer ins.Close()
+
+	var warns []error
+	for _, p := range ps {
+		if err := discoverTx(tx, upd, ins, p); err != nil {
+			warns = append(warns, fmt.Errorf("scan %s: %w", p.Path, err))
+		}
+	}
+	return warns, tx.Commit()
+}
+
+func discoverTx(tx *sql.Tx, upd, ins *sql.Stmt, p Project) error {
+	updated, err := updatedDiscovery(upd.Exec(discoveryUpdateArgs(p)...))
 	if err != nil {
 		return err
 	}
 	if updated {
 		return nil
 	}
-	return r.InsertDiscovered(p)
+	p.Path = canonical(p.Path)
+	if p.Slug, err = uniqueSlug(tx, p.Slug, p.Path); err != nil {
+		return err
+	}
+	st, _ := json.Marshal(p.Stack)
+	_, err = ins.Exec(p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
+	return err
 }
 
-// UpdateDiscovery refreshes only filesystem-derived fields for the row
-// matched by p.Path. Returns false when no row matches.
-func (r *Registry) UpdateDiscovery(p Project) (bool, error) {
+// discoveryUpdateArgs builds the arguments for updateDiscoverySQL.
+func discoveryUpdateArgs(p Project) []any {
 	st, _ := json.Marshal(p.Stack)
-	res, err := r.DB.Exec(`UPDATE projects SET language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE `+pathMatchClause,
-		p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path))
+	return []any{p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path)}
+}
+
+func updatedDiscovery(res sql.Result, err error) (bool, error) {
 	if err != nil {
 		return false, err
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// Discover registers a scanned project or refreshes its discovery fields.
+// Registry-owned fields (health_score, name, slug, flow_stage, created_at)
+// are never written by a rescan — registry is truth, filesystem is discovery.
+func (r *Registry) Discover(p Project) error {
+	warns, err := r.ApplyDiscovery([]Project{p})
+	if err != nil {
+		return err
+	}
+	if len(warns) > 0 {
+		return warns[0]
+	}
+	return nil
+}
+
+// UpdateDiscovery refreshes only filesystem-derived fields for the row
+// matched by p.Path. Returns false when no row matches.
+func (r *Registry) UpdateDiscovery(p Project) (bool, error) {
+	return updatedDiscovery(r.DB.Exec(updateDiscoverySQL, discoveryUpdateArgs(p)...))
 }
 
 // InsertDiscovered writes a full row for a path not yet registered.
@@ -163,12 +222,11 @@ func (r *Registry) InsertDiscovered(p Project) error {
 	}
 	defer tx.Rollback()
 
-	p.Slug, err = uniqueSlug(tx, p.Slug, p.Path)
-	if err != nil {
+	if p.Slug, err = uniqueSlug(tx, p.Slug, p.Path); err != nil {
 		return err
 	}
 	st, _ := json.Marshal(p.Stack)
-	if _, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	if _, err = tx.Exec(insertProjectSQL,
 		p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered)); err != nil {
 		return err
 	}

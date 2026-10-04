@@ -189,6 +189,43 @@ func TestDuplicateFolderNamesGetStableDistinctSlugs(t *testing.T) {
 	}
 }
 
+func TestApplyDiscoveryWarnsInsteadOfAborting(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	for _, d := range []string{a, b} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	// Same primary key on both rows: second insert must warn, not abort.
+	ps := []Project{
+		{ID: "dup", Name: "a", Slug: "a", Path: a, Channel: "sandbox", FlowStage: "source", CreatedAt: now, OnDisk: true},
+		{ID: "dup", Name: "b", Slug: "b", Path: b, Channel: "sandbox", FlowStage: "source", CreatedAt: now, OnDisk: true},
+	}
+	warns, err := r.ApplyDiscovery(ps)
+	if err != nil {
+		t.Fatalf("ApplyDiscovery fatal: %v", err)
+	}
+	if len(warns) != 1 {
+		t.Fatalf("got %d warnings, want 1", len(warns))
+	}
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Slug != "a" {
+		t.Errorf("first project not committed: %+v", list)
+	}
+}
+
 func TestMigrateSetsUserVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rivu.db")
 	r, err := Open(path)

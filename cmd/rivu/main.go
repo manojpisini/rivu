@@ -79,6 +79,9 @@ func scanCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		for _, w := range a.ScanWarnings {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
+		}
 		fmt.Printf("Mapped %d project(s) from %s\n", len(ps), a.Config.Workspace.Root)
 		return nil
 	})}

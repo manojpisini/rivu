@@ -22,6 +22,8 @@ type App struct {
 	Registry *registry.Registry
 	// ConfigWarnings lists unrecognized config keys found at load time.
 	ConfigWarnings []string
+	// ScanWarnings lists per-project failures from the last Scan.
+	ScanWarnings []string
 }
 
 func Open() (*App, error) {
@@ -51,10 +53,13 @@ func (a *App) Scan() ([]registry.Project, error) {
 	if e != nil {
 		return nil, e
 	}
-	for _, p := range ps {
-		if e = a.Registry.Discover(p); e != nil {
-			return nil, e
-		}
+	warns, e := a.Registry.ApplyDiscovery(ps)
+	a.ScanWarnings = nil
+	for _, w := range warns {
+		a.ScanWarnings = append(a.ScanWarnings, w.Error())
+	}
+	if e != nil {
+		return nil, fmt.Errorf("scan could not be committed: %w", e)
 	}
 	return ps, nil
 }
