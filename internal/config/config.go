@@ -124,13 +124,36 @@ func Save(c Config) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		return err
+	dir := filepath.Dir(p)
+	if err = os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
 	}
-	f, err := os.Create(p)
+	f, err := os.CreateTemp(dir, ".config-*.tmp")
 	if err != nil {
-		return err
+		return fmt.Errorf("write config: %w", err)
 	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(c)
+	tmp := f.Name()
+	if err = toml.NewEncoder(f).Encode(c); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("encode config: %w", err)
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("flush config: %w", err)
+	}
+	if err = f.Close(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("close config: %w", err)
+	}
+	if err = os.Chmod(tmp, 0600); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("secure config: %w", err)
+	}
+	if err = os.Rename(tmp, p); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("replace config: %w", err)
+	}
+	return nil
 }

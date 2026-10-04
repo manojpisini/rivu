@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +70,43 @@ func TestLoadUsesEnvHome(t *testing.T) {
 	}
 	if cfg.Workspace.AutoRescan != true {
 		t.Error("expected default AutoRescan true")
+	}
+}
+
+func TestSaveAtomicAndPrivate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	c := Default()
+	c.Workspace.Root = filepath.Join(home, "ws")
+	if err := Save(c); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	p, _ := Path()
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := fi.Mode().Perm(); perm != 0600 {
+			t.Errorf("config perms = %o, want 600", perm)
+		}
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if got.Workspace.Root != c.Workspace.Root {
+		t.Errorf("round-trip root = %q, want %q", got.Workspace.Root, c.Workspace.Root)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover temp file %s", e.Name())
+		}
 	}
 }
