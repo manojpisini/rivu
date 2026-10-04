@@ -64,11 +64,32 @@ func Path() (string, error) {
 	}
 	return filepath.Join(d, "config.toml"), nil
 }
+
+// expand resolves $VAR/${VAR} references and a leading ~, then makes
+// the path absolute so downstream code never mixes relative and absolute.
 func expand(s string) string {
-	if strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "~\\") {
-		if h, e := os.UserHomeDir(); e == nil {
-			return filepath.Join(h, s[2:])
+	s = os.Expand(s, func(k string) string {
+		if v, ok := os.LookupEnv(k); ok {
+			return v
 		}
+		if k == "HOME" {
+			if h, e := os.UserHomeDir(); e == nil {
+				return h
+			}
+		}
+		return ""
+	})
+	if s == "~" || strings.HasPrefix(s, "~/") || strings.HasPrefix(s, "~\\") {
+		if h, e := os.UserHomeDir(); e == nil {
+			if s == "~" {
+				s = h
+			} else {
+				s = filepath.Join(h, s[2:])
+			}
+		}
+	}
+	if abs, err := filepath.Abs(s); err == nil {
+		return abs
 	}
 	return filepath.Clean(s)
 }

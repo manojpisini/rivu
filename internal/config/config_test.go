@@ -96,8 +96,35 @@ func TestLoadWarnsOnUnknownKeys(t *testing.T) {
 	if !strings.Contains(warns[0], "workspace.wokspace_typo") && !strings.Contains(warns[0], "wokspace_typo") {
 		t.Errorf("warning %q does not name the typo key", warns[0])
 	}
-	if cfg.Workspace.Root != filepath.Clean("/tmp/ws") {
-		t.Errorf("known key not applied, root = %q", cfg.Workspace.Root)
+	if want, _ := filepath.Abs("/tmp/ws"); cfg.Workspace.Root != want {
+		t.Errorf("known key not applied, root = %q, want %q", cfg.Workspace.Root, want)
+	}
+}
+
+func TestExpandForms(t *testing.T) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	t.Setenv("RIVU_TEST_WS", filepath.Join(t.TempDir(), "ws"))
+
+	tests := []struct{ in, want string }{
+		{"~", h},
+		{"~/proj", filepath.Join(h, "proj")},
+		{"$HOME/proj", filepath.Join(h, "proj")},
+		{"${RIVU_TEST_WS}", os.Getenv("RIVU_TEST_WS")},
+		{"relative/dir", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			got := expand(tt.in)
+			if !filepath.IsAbs(got) {
+				t.Errorf("expand(%q) = %q, not absolute", tt.in, got)
+			}
+			if tt.want != "" && got != tt.want {
+				t.Errorf("expand(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }
 
