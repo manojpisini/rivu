@@ -5,3 +5,8 @@
 *.db-wal
 .DS_Store
 /plans/
+/docs/
+/scripts/
+AGENTS.md
+.codex/
+.agents/
