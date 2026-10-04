@@ -97,27 +97,35 @@ func Default() Config {
 	c.Data.SnapshotRetentionDays = 90
 	return c
 }
-func Load() (Config, error) {
+
+// Load reads the config file over defaults. The second return lists
+// unrecognized keys (typos) that were ignored; fix or remove them.
+func Load() (Config, []string, error) {
 	c := Default()
 	p, err := Path()
 	if err != nil {
-		return c, err
+		return c, nil, err
 	}
 	if _, err = os.Stat(p); errors.Is(err, os.ErrNotExist) {
 		if err = Save(c); err != nil {
-			return c, err
+			return c, nil, err
 		}
-		return c, nil
+		return c, nil, nil
 	}
 	if err != nil {
-		return c, err
+		return c, nil, err
 	}
-	if _, err = toml.DecodeFile(p, &c); err != nil {
-		return c, fmt.Errorf("decode config: %w", err)
+	md, err := toml.DecodeFile(p, &c)
+	if err != nil {
+		return c, nil, fmt.Errorf("decode config: %w", err)
+	}
+	var warnings []string
+	for _, key := range md.Undecoded() {
+		warnings = append(warnings, fmt.Sprintf("unknown config key %q in %s — fix the typo or remove it", key, p))
 	}
 	c.Workspace.Root = expand(c.Workspace.Root)
 	c.Data.DBPath = expand(c.Data.DBPath)
-	return c, nil
+	return c, warnings, nil
 }
 func Save(c Config) error {
 	p, err := Path()

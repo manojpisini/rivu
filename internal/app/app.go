@@ -20,10 +20,12 @@ import (
 type App struct {
 	Config   config.Config
 	Registry *registry.Registry
+	// ConfigWarnings lists unrecognized config keys found at load time.
+	ConfigWarnings []string
 }
 
 func Open() (*App, error) {
-	c, e := config.Load()
+	c, warns, e := config.Load()
 	if e != nil {
 		return nil, e
 	}
@@ -34,7 +36,7 @@ func Open() (*App, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &App{c, r}, nil
+	return &App{Config: c, Registry: r, ConfigWarnings: warns}, nil
 }
 func (a *App) Close() error { return a.Registry.Close() }
 func (a *App) Scan() ([]registry.Project, error) {

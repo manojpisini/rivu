@@ -27,6 +27,9 @@ func withApp(fn func(*app.App) error) func(*cobra.Command, []string) error {
 			return e
 		}
 		defer a.Close()
+		for _, w := range a.ConfigWarnings {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
+		}
 		return fn(a)
 	}
 }
@@ -251,9 +254,12 @@ func configCmd() *cobra.Command {
 		}
 		return e
 	}}, &cobra.Command{Use: "show", RunE: func(*cobra.Command, []string) error {
-		cfg, e := config.Load()
+		cfg, warns, e := config.Load()
 		if e != nil {
 			return e
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
 		fmt.Printf("workspace: %s\ndatabase: %s\neditor: %s\n", filepath.Clean(cfg.Workspace.Root), filepath.Clean(cfg.Data.DBPath), cfg.Editors.Default)
 		return nil

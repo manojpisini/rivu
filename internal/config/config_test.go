@@ -61,15 +61,43 @@ func TestLoadUsesEnvHome(t *testing.T) {
 	t.Setenv("RIVU_HOME", home)
 	t.Setenv("RIVU_CONFIG", "")
 
-	cfg, err := Load()
+	cfg, warns, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
 	}
 	if _, err := os.Stat(filepath.Join(home, "config.toml")); err != nil {
 		t.Errorf("config not written under RIVU_HOME: %v", err)
 	}
 	if cfg.Workspace.AutoRescan != true {
 		t.Error("expected default AutoRescan true")
+	}
+}
+
+func TestLoadWarnsOnUnknownKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	p := filepath.Join(home, "config.toml")
+	body := "[workspace]\nroot = \"/tmp/ws\"\nwokspace_typo = true\n"
+	if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warns, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 1 {
+		t.Fatalf("warnings = %v, want exactly 1", warns)
+	}
+	if !strings.Contains(warns[0], "workspace.wokspace_typo") && !strings.Contains(warns[0], "wokspace_typo") {
+		t.Errorf("warning %q does not name the typo key", warns[0])
+	}
+	if cfg.Workspace.Root != filepath.Clean("/tmp/ws") {
+		t.Errorf("known key not applied, root = %q", cfg.Workspace.Root)
 	}
 }
 
@@ -93,7 +121,7 @@ func TestSaveAtomicAndPrivate(t *testing.T) {
 			t.Errorf("config perms = %o, want 600", perm)
 		}
 	}
-	got, err := Load()
+	got, _, err := Load()
 	if err != nil {
 		t.Fatalf("Load after Save: %v", err)
 	}
