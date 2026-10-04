@@ -34,6 +34,23 @@ type Config struct {
 		Ignore   []string `toml:"ignore"`
 		MaxDepth int      `toml:"max_depth"`
 	} `toml:"scanner"`
+	Health struct {
+		Weights map[string]int `toml:"weights"`
+	} `toml:"health"`
+	Git struct {
+		DefaultBranch string `toml:"default_branch"`
+	} `toml:"git"`
+	Bridge struct {
+		Enabled      bool   `toml:"enabled"`
+		OwnsGitInit  bool   `toml:"owns_git_init"`
+		ScaffoldMark string `toml:"scaffold_marker"`
+	} `toml:"bridge"`
+	Templates struct {
+		Default string `toml:"default"`
+	} `toml:"templates"`
+	Keybindings struct {
+		Profile string `toml:"profile"`
+	} `toml:"keybindings"`
 	Appearance struct {
 		Theme   string `toml:"theme"`
 		Density string `toml:"density"`
@@ -111,6 +128,13 @@ func Default() Config {
 	c.Flow.SourceSLADays = 14
 	c.Scanner.Ignore = []string{"node_modules", ".git", "dist", "build", ".next", "target", "vendor", "coverage", ".cache", ".venv", "__pycache__"}
 	c.Scanner.MaxDepth = 6
+	c.Health.Weights = map[string]int{"readme": 20, "git": 15, "bank": 15, "map": 15, "tests": 10, "ci": 10, "license": 10, "deps_fresh": 5}
+	c.Git.DefaultBranch = "main"
+	c.Bridge.Enabled = false
+	c.Bridge.OwnsGitInit = true
+	c.Bridge.ScaffoldMark = ".lode"
+	c.Templates.Default = "empty"
+	c.Keybindings.Profile = "default"
 	c.Appearance.Theme = "graphite-violet"
 	c.Appearance.Density = "comfortable"
 	d, _ := Dir()
@@ -132,10 +156,24 @@ func Validate(c Config) error {
 	if c.Flow.SourceSLADays < 1 {
 		problems = append(problems, fmt.Sprintf("flow.source_sla_days = %d, must be >= 1", c.Flow.SourceSLADays))
 	}
+	if sum := weightsSum(c.Health.Weights); c.Health.Weights != nil && sum != 100 {
+		problems = append(problems, fmt.Sprintf("health.weights sums to %d, must be 100", sum))
+	}
+	if c.Git.DefaultBranch == "" {
+		problems = append(problems, "git.default_branch is empty, set it (usually \"main\")")
+	}
 	if len(problems) == 0 {
 		return nil
 	}
 	return fmt.Errorf("invalid config in %s:\n  - %s\nFix the listed values and run again", mustPath(), strings.Join(problems, "\n  - "))
+}
+
+func weightsSum(w map[string]int) int {
+	sum := 0
+	for _, v := range w {
+		sum += v
+	}
+	return sum
 }
 
 // ValidateRoot checks the workspace root exists; scan cannot run without it.

@@ -128,6 +128,59 @@ func TestExpandForms(t *testing.T) {
 	}
 }
 
+func TestNewSectionsDefaults(t *testing.T) {
+	c := Default()
+	if sum := c.Health.Weights["readme"] + c.Health.Weights["git"] + c.Health.Weights["bank"] +
+		c.Health.Weights["map"] + c.Health.Weights["tests"] + c.Health.Weights["ci"] +
+		c.Health.Weights["license"] + c.Health.Weights["deps_fresh"]; sum != 100 {
+		t.Errorf("default health weights sum to %d, want 100", sum)
+	}
+	if c.Git.DefaultBranch != "main" {
+		t.Errorf("git.default_branch = %q, want main", c.Git.DefaultBranch)
+	}
+	if c.Templates.Default != "empty" {
+		t.Errorf("templates.default = %q, want empty", c.Templates.Default)
+	}
+	if c.Keybindings.Profile != "default" {
+		t.Errorf("keybindings.profile = %q, want default", c.Keybindings.Profile)
+	}
+	if c.Bridge.Enabled {
+		t.Error("bridge.enabled should default to false")
+	}
+}
+
+func TestPartialFileKeepsDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	body := "[git]\ndefault_branch = \"trunk\"\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Git.DefaultBranch != "trunk" {
+		t.Errorf("override not applied, branch = %q", cfg.Git.DefaultBranch)
+	}
+	if cfg.Scanner.MaxDepth != 6 {
+		t.Errorf("untouched section lost defaults, max_depth = %d", cfg.Scanner.MaxDepth)
+	}
+	if len(cfg.Health.Weights) != 8 {
+		t.Errorf("health weights lost defaults, got %v", cfg.Health.Weights)
+	}
+}
+
+func TestValidateWeightsSum(t *testing.T) {
+	c := Default()
+	c.Health.Weights["readme"] = 50
+	if err := Validate(c); err == nil || !strings.Contains(err.Error(), "health.weights") {
+		t.Errorf("bad weights accepted: %v", err)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
