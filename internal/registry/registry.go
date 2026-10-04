@@ -206,32 +206,6 @@ func updatedDiscovery(res sql.Result, err error) (bool, error) {
 	return n > 0, err
 }
 
-// UpdateDiscovery refreshes only filesystem-derived fields for the row
-// matched by p.Path. Returns false when no row matches.
-func (r *Registry) UpdateDiscovery(p Project) (bool, error) {
-	return updatedDiscovery(r.DB.Exec(updateDiscoverySQL, discoveryUpdateArgs(p)...))
-}
-
-// InsertDiscovered writes a full row for a path not yet registered.
-func (r *Registry) InsertDiscovered(p Project) error {
-	p.Path = canonical(p.Path)
-	tx, err := r.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if p.Slug, err = uniqueSlug(tx, p.Slug, p.Path); err != nil {
-		return err
-	}
-	st, _ := json.Marshal(p.Stack)
-	if _, err = tx.Exec(insertProjectSQL,
-		p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered)); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 // Upsert inserts or fully updates a row while preserving identity
 // (id, slug, created_at, health_score). Used by registration, not by rescan.
 func (r *Registry) Upsert(p Project) error {
@@ -448,6 +422,9 @@ func (r *Registry) Find(q string) (Project, error) {
 func (r *Registry) Resolve(q string) (Project, error) {
 	if q == "" {
 		p, err := r.Current()
+		if errors.Is(err, ErrNotFound) {
+			return Project{}, err
+		}
 		if err != nil {
 			return Project{}, fmt.Errorf("no Current project; pass a project name or use rivu open <project>")
 		}

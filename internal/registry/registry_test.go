@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -461,6 +462,149 @@ func TestOpenRecordsTimestampAndActivity(t *testing.T) {
 	}
 	if projectID != "id-1" || event != "opened" || occurred.Before(before) {
 		t.Errorf("activity row = (%s, %s, %v)", projectID, event, occurred)
+	}
+}
+
+func TestCurrentAndResolveEmptyQuery(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	if _, err := r.Current(); err == nil {
+		t.Error("Current with no setting should fail")
+	}
+	now := time.Now()
+	if err := r.Upsert(Project{ID: "id-1", Name: "p", Slug: "p", Path: "/p", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetCurrent("id-1"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.Resolve("")
+	if err != nil || p.ID != "id-1" {
+		t.Errorf("Resolve(\"\") = %+v, %v; want id-1", p, err)
+	}
+	// Stale current id maps to ErrNotFound.
+	if err := r.SetCurrent("ghost"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Resolve(""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("stale current: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdatePathFlow(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	if err := r.Upsert(Project{ID: "id-1", Name: "p", Slug: "p", Path: "/old", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.UpdatePathFlow("id-1", "/new", "01_Active", "active"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.Find("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Path != canonical("/new") || p.Channel != "01_Active" || p.FlowStage != "active" {
+		t.Errorf("path/channel/flow not updated: %+v", p)
+	}
+	if err := r.UpdatePathFlow("ghost", "/x", "00_Source", "source"); err == nil {
+		t.Error("update of missing project should fail")
+	}
+}
+
+func TestChannelFlowMapping(t *testing.T) {
+	for flow, ch := range map[string]string{
+		"source": "00_Source", "active": "01_Active", "maintenance": "02_Maintenance",
+		"research": "03_Research", "delta": "90_Delta",
+	} {
+		if got := ChannelForFlow(flow); got != ch {
+			t.Errorf("ChannelForFlow(%q) = %q, want %q", flow, got, ch)
+		}
+		if got := FlowForChannel(ch); got != flow {
+			t.Errorf("FlowForChannel(%q) = %q, want %q", ch, got, flow)
+		}
+	}
+	if ChannelForFlow("bogus") != "00_Source" || FlowForChannel("junk") != "source" {
+		t.Error("unknown inputs must fall back to source defaults")
+	}
+}
+
+func TestTimeRoundTrip(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	// Zero time.Time must survive the round trip (R-11).
+	if err := r.Upsert(Project{ID: "zero", Name: "z", Slug: "z", Path: "/z", Channel: "00_Source", FlowStage: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Find("z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CreatedAt.IsZero() {
+		t.Errorf("zero CreatedAt came back as %v", got.CreatedAt)
+	}
+
+	// A real timestamp survives to second precision.
+	stamp := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	if err := r.Upsert(Project{ID: "real", Name: "r", Slug: "r", Path: "/r", Channel: "00_Source", FlowStage: "source", CreatedAt: stamp, LastOpenedAt: stamp, LastScannedAt: stamp}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = r.Find("r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CreatedAt.Equal(stamp) || !got.LastOpenedAt.Equal(stamp) || !got.LastScannedAt.Equal(stamp) {
+		t.Errorf("time drift: created=%v opened=%v scanned=%v, want %v", got.CreatedAt, got.LastOpenedAt, got.LastScannedAt, stamp)
+	}
+}
+
+func TestConcurrentUpserts(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	const workers, each = 4, 5
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*each)
+	now := time.Now()
+	for w := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range each {
+				p := Project{ID: fmt.Sprintf("id-%d-%d", w, i), Name: "p", Slug: fmt.Sprintf("p-%d-%d", w, i), Path: fmt.Sprintf("/p/%d/%d", w, i), Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true}
+				errs <- r.Upsert(p)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent upsert: %v", err)
+		}
+	}
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != workers*each {
+		t.Errorf("got %d rows, want %d", len(list), workers*each)
 	}
 }
 
