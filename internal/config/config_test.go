@@ -223,6 +223,101 @@ func TestValidateRoot(t *testing.T) {
 	}
 }
 
+func TestRoundTripAllFields(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	c := Default()
+	c.Workspace.Root = filepath.Join(home, "ws")
+	c.Workspace.SecondaryRoots = []string{filepath.Join(home, "ws2")}
+	c.Workspace.AutoRescan = false
+	c.Editors.Default = "nvim"
+	c.Editors.PerLanguage = map[string]string{"go": "nvim"}
+	c.Automation.CreateBank = false
+	c.Flow.StaleThresholdDays = 30
+	c.Flow.SourceSLADays = 7
+	c.Scanner.Ignore = []string{"tmp"}
+	c.Scanner.MaxDepth = 3
+	c.Health.Weights = map[string]int{"readme": 25, "git": 25, "bank": 25, "map": 25}
+	c.Git.DefaultBranch = "trunk"
+	c.Bridge.Enabled = true
+	c.Templates.Default = "go-cli"
+	c.Keybindings.Profile = "vim"
+	c.Appearance.Theme = "midnight"
+	c.Appearance.Density = "compact"
+	c.Data.DBPath = filepath.Join(home, "custom.db")
+	c.Data.SnapshotRetentionDays = 14
+
+	if err := Save(c); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warns, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if got.Workspace.Root != c.Workspace.Root ||
+		got.Workspace.AutoRescan != c.Workspace.AutoRescan ||
+		got.Editors.Default != c.Editors.Default ||
+		got.Editors.PerLanguage["go"] != "nvim" ||
+		got.Automation.CreateBank != c.Automation.CreateBank ||
+		got.Flow.StaleThresholdDays != 30 ||
+		got.Flow.SourceSLADays != 7 ||
+		got.Scanner.MaxDepth != 3 ||
+		len(got.Scanner.Ignore) != 1 || got.Scanner.Ignore[0] != "tmp" ||
+		got.Health.Weights["readme"] != 25 ||
+		got.Git.DefaultBranch != "trunk" ||
+		got.Bridge.Enabled != true ||
+		got.Templates.Default != "go-cli" ||
+		got.Keybindings.Profile != "vim" ||
+		got.Appearance.Theme != "midnight" ||
+		got.Appearance.Density != "compact" ||
+		got.Data.DBPath != c.Data.DBPath ||
+		got.Data.SnapshotRetentionDays != 14 {
+		t.Errorf("round-trip lost fields:\n got %+v\nwant %+v", got, c)
+	}
+}
+
+func TestLoadRejectsBrokenToml(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("[[[not toml"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Load(); err == nil {
+		t.Fatal("Load accepted broken TOML, want error")
+	}
+}
+
+func TestSaveFailsUnderAFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	// config path under a regular file → MkdirAll must fail, nothing written
+	blocker := filepath.Join(home, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RIVU_CONFIG", filepath.Join(blocker, "nested", "config.toml"))
+
+	if err := Save(Default()); err == nil {
+		t.Fatal("Save succeeded under a file, want error")
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover temp file %s", e.Name())
+		}
+	}
+}
+
 func TestSaveAtomicAndPrivate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
