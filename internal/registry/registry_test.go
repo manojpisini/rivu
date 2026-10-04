@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,6 +29,67 @@ func TestOpenAppliesPragmas(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("PRAGMA %s = %q, want %q", tc.pragma, got, tc.want)
 		}
+	}
+}
+
+func TestCanonicalCleansPath(t *testing.T) {
+	base := t.TempDir()
+	sub := filepath.Join(base, "ws", "proj")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	want := canonical(sub)
+	for _, in := range []string{
+		sub + string(os.PathSeparator),
+		filepath.Join(base, "ws", "other", "..", "proj"),
+	} {
+		if got := canonical(in); got != want {
+			t.Errorf("canonical(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// Non-existent paths still Clean.
+	if got := canonical(filepath.Join(base, "a", "..", "missing")); got != filepath.Join(base, "missing") {
+		t.Errorf("canonical on missing path = %q", got)
+	}
+}
+
+func TestUpsertFoldsEquivalentPaths(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	base := t.TempDir()
+	real := filepath.Join(base, "app")
+	if err := os.MkdirAll(real, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	first := Project{ID: "id-1", Name: "app", Slug: "app", Path: real, Channel: "sandbox", FlowStage: "current"}
+	if err := r.Upsert(first); err != nil {
+		t.Fatal(err)
+	}
+	// Trailing separator + parent-jitter + (on case-insensitive FS) case jitter
+	// must resolve to the same row, not a duplicate.
+	jitter := filepath.Join(base, "sub", "..", "app") + string(os.PathSeparator)
+	if runtime.GOOS == "windows" {
+		jitter = strings.ToUpper(base[:1]) + jitter[1:]
+	}
+	second := Project{ID: "id-2", Name: "app2", Slug: "app2", Path: jitter, Channel: "sandbox", FlowStage: "current"}
+	if err := r.Upsert(second); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("got %d rows, want 1", len(list))
+	}
+	if list[0].ID != "id-1" || list[0].Slug != "app" {
+		t.Errorf("rescan replaced identity: %+v", list[0])
 	}
 }
 

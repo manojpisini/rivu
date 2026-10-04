@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -106,7 +108,27 @@ func b(v bool) int {
 	}
 	return 0
 }
+
+// canonical is the one normalisation applied to every stored path:
+// Clean always, EvalSymlinks when the path exists.
+func canonical(p string) string {
+	p = filepath.Clean(p)
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		p = resolved
+	}
+	return p
+}
+
+// pathMatchClause compares paths case-folded where the filesystem does.
+var pathMatchClause = func() string {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return `path=? COLLATE NOCASE`
+	}
+	return `path=?`
+}()
+
 func (r *Registry) Upsert(p Project) error {
+	p.Path = canonical(p.Path)
 	tx, err := r.DB.Begin()
 	if err != nil {
 		return err
@@ -115,12 +137,14 @@ func (r *Registry) Upsert(p Project) error {
 
 	// A scan creates fresh candidate IDs, but project identity belongs to the
 	// existing path. Preserve both ID and slug when the same path is rescanned.
-	var existingID, existingSlug string
-	err = tx.QueryRow(`SELECT id,slug FROM projects WHERE path=?`, p.Path).Scan(&existingID, &existingSlug)
+	var existingID, existingSlug, existingPath string
+	err = tx.QueryRow(`SELECT id,slug,path FROM projects WHERE `+pathMatchClause, p.Path).Scan(&existingID, &existingSlug, &existingPath)
 	switch {
 	case err == nil:
 		p.ID = existingID
 		p.Slug = existingSlug
+		// Keep the stored casing so ON CONFLICT(path) hits this row.
+		p.Path = existingPath
 	case errors.Is(err, sql.ErrNoRows):
 		p.Slug, err = uniqueSlug(tx, p.Slug, p.Path)
 		if err != nil {
@@ -209,7 +233,7 @@ func (r *Registry) SetCurrent(id string) error {
 	return err
 }
 func (r *Registry) UpdatePathFlow(id, path, channel, flow string) error {
-	res, err := r.DB.Exec(`UPDATE projects SET path=?,channel=?,flow_stage=? WHERE id=?`, path, channel, flow, id)
+	res, err := r.DB.Exec(`UPDATE projects SET path=?,channel=?,flow_stage=? WHERE id=?`, canonical(path), channel, flow, id)
 	if err != nil {
 		return err
 	}
