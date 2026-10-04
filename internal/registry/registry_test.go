@@ -93,6 +93,57 @@ func TestUpsertFoldsEquivalentPaths(t *testing.T) {
 	}
 }
 
+func TestDiscoverNeverTouchesRegistryOwnedFields(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	dir := filepath.Join(t.TempDir(), "myproj")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	full := Project{ID: "id-1", Name: "My Proj", Slug: "my-proj", Path: dir, Channel: "sandbox", FlowStage: "building", Language: "go", CreatedAt: created, OnDisk: true, Registered: true}
+	if err := r.Upsert(full); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetHealth("id-1", 88); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scanner output: zero health, folder-derived name/stage, new language.
+	scanned := Project{ID: "fresh-id", Name: "folder", Slug: "folder", Path: dir, Channel: "sandbox", FlowStage: "source", Language: "rust", Stack: []string{"cargo"}, HasGit: true, LastScannedAt: time.Now(), OnDisk: true}
+	if err := r.Discover(scanned); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d rows, want 1", len(got))
+	}
+	p := got[0]
+	if p.ID != "id-1" || p.Slug != "my-proj" {
+		t.Errorf("identity overwritten: id=%q slug=%q", p.ID, p.Slug)
+	}
+	if p.Name != "My Proj" || p.FlowStage != "building" {
+		t.Errorf("registry-owned fields overwritten: name=%q stage=%q", p.Name, p.FlowStage)
+	}
+	if p.HealthScore != 88 {
+		t.Errorf("health wiped to %d", p.HealthScore)
+	}
+	if !p.CreatedAt.Equal(created) {
+		t.Errorf("created_at overwritten: %v", p.CreatedAt)
+	}
+	if p.Language != "rust" || !p.HasGit || p.Stack == nil || p.Stack[0] != "cargo" {
+		t.Errorf("discovery fields not refreshed: %+v", p)
+	}
+}
+
 func TestMigrateSetsUserVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rivu.db")
 	r, err := Open(path)

@@ -127,6 +127,56 @@ var pathMatchClause = func() string {
 	return `path=?`
 }()
 
+// Discover registers a scanned project or refreshes its discovery fields.
+// Registry-owned fields (health_score, name, slug, flow_stage, created_at)
+// are never written by a rescan — registry is truth, filesystem is discovery.
+func (r *Registry) Discover(p Project) error {
+	updated, err := r.UpdateDiscovery(p)
+	if err != nil {
+		return err
+	}
+	if updated {
+		return nil
+	}
+	return r.InsertDiscovered(p)
+}
+
+// UpdateDiscovery refreshes only filesystem-derived fields for the row
+// matched by p.Path. Returns false when no row matches.
+func (r *Registry) UpdateDiscovery(p Project) (bool, error) {
+	st, _ := json.Marshal(p.Stack)
+	res, err := r.DB.Exec(`UPDATE projects SET language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE `+pathMatchClause,
+		p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// InsertDiscovered writes a full row for a path not yet registered.
+func (r *Registry) InsertDiscovered(p Project) error {
+	p.Path = canonical(p.Path)
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	p.Slug, err = uniqueSlug(tx, p.Slug, p.Path)
+	if err != nil {
+		return err
+	}
+	st, _ := json.Marshal(p.Stack)
+	if _, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Upsert inserts or fully updates a row while preserving identity
+// (id, slug, created_at, health_score). Used by registration, not by rescan.
 func (r *Registry) Upsert(p Project) error {
 	p.Path = canonical(p.Path)
 	tx, err := r.DB.Begin()
@@ -155,7 +205,7 @@ func (r *Registry) Upsert(p Project) error {
 	}
 
 	st, _ := json.Marshal(p.Stack)
-	_, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,health_score=excluded.health_score,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
+	_, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
 	if err != nil {
 		return err
 	}

@@ -52,7 +52,7 @@ func (a *App) Scan() ([]registry.Project, error) {
 		return nil, e
 	}
 	for _, p := range ps {
-		if e = a.Registry.Upsert(p); e != nil {
+		if e = a.Registry.Discover(p); e != nil {
 			return nil, e
 		}
 	}
