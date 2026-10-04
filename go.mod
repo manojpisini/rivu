@@ -2,6 +2,8 @@ module github.com/manojpisini/rivu
 
 go 1.23.0
 
+toolchain go1.26.4
+
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/charmbracelet/bubbletea v1.2.4
