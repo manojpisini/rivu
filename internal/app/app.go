@@ -106,40 +106,119 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 		return registry.Project{}, fmt.Errorf("destination %s escapes channel folder %s", path, chDir)
 	}
 	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
+
+	// Preflight (O-01): every check runs before the first write, so a
+	// rejected Source never leaves half-created folders behind.
+	plan := SourcePlan{Name: name, Slug: s, Channel: ch, FlowStage: flow, ChannelDir: chDir, Path: path}
+	if taken, err := a.Registry.SlugOrPathTaken(s, path); err != nil {
+		return p, err
+	} else if taken {
+		return p, fmt.Errorf("slug %q or path %s is already registered — pick another name, or open the existing project", s, path)
+	}
+	createdRoot, wasEmpty := false, false
+	switch fi, err := os.Lstat(path); {
+	case err == nil && !fi.IsDir():
+		return p, fmt.Errorf("%s exists and is not a directory", path)
+	case err == nil:
+		entries, rerr := os.ReadDir(path)
+		if rerr != nil {
+			return p, rerr
+		}
+		if len(entries) > 0 {
+			return p, fmt.Errorf("%s already exists and is not empty — adopt it instead of creating a new project", path)
+		}
+		wasEmpty = true
+	case os.IsNotExist(err):
+		createdRoot = true
+	default:
+		return p, err
+	}
+	if gitInit {
+		if _, err := exec.LookPath("git"); err != nil {
+			return p, fmt.Errorf("git is not on PATH — install git or drop --git: %w", err)
+		}
+		plan.Run = append(plan.Run, "git init")
+	}
+	if createdRoot {
+		plan.Create = append(plan.Create, path)
+	}
+	if a.Config.Automation.CreateBank {
+		plan.Bank = append(plan.Bank, ".metadata/project.toml", ".metadata/overview.md", ".metadata/decisions.md", ".metadata/tasks.md")
+	}
+	if a.Config.Automation.BuildMap {
+		plan.Write = append(plan.Write, ".metadata/agent/AGENTS.md", ".metadata/agent/PROJECT_MAP.md")
+	}
+	plan.Registry = append(plan.Registry, "register "+s)
+
 	if dry {
 		return p, nil
 	}
-	if e := os.MkdirAll(path, 0755); e != nil {
-		return p, e
+	gitRan, metaRan := false, false
+	fail := func(err error) (registry.Project, error) {
+		rollbackSource(path, createdRoot, wasEmpty, gitRan, metaRan)
+		return p, err
+	}
+	if createdRoot {
+		if e := os.MkdirAll(path, 0755); e != nil {
+			return fail(e)
+		}
 	}
 	if gitInit {
+		gitRan = true
 		cmd := exec.Command("git", "init")
 		cmd.Dir = path
 		if out, e := cmd.CombinedOutput(); e != nil {
-			return p, fmt.Errorf("git init: %w: %s", e, out)
+			return fail(fmt.Errorf("git init: %w: %s", e, out))
 		}
 		p.HasGit = true
 	}
 	if a.Config.Automation.CreateBank {
+		metaRan = true
 		if e := bank.Build(p, "rivu"); e != nil {
-			return p, e
+			return fail(e)
 		}
 		p.HasBank = true
 	}
 	if a.Config.Automation.BuildMap {
+		metaRan = true
 		if e := mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
-			return p, e
+			return fail(e)
 		}
 		p.HasMap = true
 	}
 	if e := a.Registry.Upsert(p); e != nil {
-		return p, e
+		return fail(fmt.Errorf("register project: %w", e))
 	}
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "sourced")
 	return p, nil
 }
-func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
+
+// rollbackSource removes only what this Source run created: the project
+// directory if this run made it, otherwise just .metadata/.git inside a
+// directory that was empty at preflight. A directory with pre-existing
+// content (adopt mode) is never touched — safety rule 1.
+func rollbackSource(path string, createdRoot, wasEmpty, gitRan, metaRan bool) {
+	if createdRoot {
+		_ = os.RemoveAll(path)
+		return
+	}
+	if !wasEmpty {
+		return
+	}
+	if metaRan {
+		_ = os.RemoveAll(filepath.Join(path, ".metadata"))
+	}
+	if gitRan {
+		_ = os.RemoveAll(filepath.Join(path, ".git"))
+	}
+}
+
+// Flow moves a project to another Flow stage: preflight → rename → bank
+// sync → one registry transaction; any failure undoes the rename so the
+// registry never points at a path that no longer exists (B-08). The
+// returned string is a human note for the caller to print.
+func (a *App) Flow(q, to string, flatten, dry bool) (registry.Project, string, error) {
 	if !validFlow(to) {
 		return registry.Project{}, "", fmt.Errorf("invalid flow stage %q", to)
 	}
@@ -147,31 +226,115 @@ func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
 	if e != nil {
 		return p, "", e
 	}
-	dest := filepath.Join(a.Config.Workspace.Root, channel(to), filepath.Base(p.Path))
-	if dry {
-		return p, dest, nil
+	if p.FlowStage == to {
+		return p, fmt.Sprintf("%s is already in %s — nothing to move", p.Name, to), nil
 	}
-	if e = os.MkdirAll(filepath.Dir(dest), 0755); e != nil {
-		return p, dest, e
+
+	// Root this project lives under; rows predating P1.29 fall back to the
+	// primary workspace root. EvalSymlinks folds 8.3 short names and
+	// symlinked dirs so root and the canonical registry path agree.
+	root := p.Root
+	if root == "" {
+		root = a.Config.Workspace.Root
 	}
-	if p.Path != dest {
-		if e = os.Rename(p.Path, dest); e != nil {
-			return p, dest, e
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(a.Config.Workspace.Root, root)
+	}
+	root = resolved(root)
+	// Relative to the project's current channel folder, so sub-folders are
+	// preserved under the destination channel (P1.44).
+	rel := filepath.Base(p.Path)
+	if !flatten {
+		if r, err := filepath.Rel(filepath.Join(root, p.Channel), p.Path); err == nil && r != "." && !strings.HasPrefix(r, "..") {
+			rel = r
 		}
 	}
-	p.Path = dest
-	p.Channel = channel(to)
-	p.FlowStage = to
-	if e = bank.Sync(p, "rivu"); e != nil {
-		return p, dest, e
+	ch := channel(to)
+	dest := filepath.Join(root, ch, rel)
+
+	// Preflight (P1.42): every hazard checked before anything moves.
+	fi, err := os.Lstat(p.Path)
+	if err != nil {
+		return p, "", fmt.Errorf("project folder is not on disk — run `rivu scan` to reconcile: %w", err)
 	}
-	if e = a.Registry.UpdatePathFlow(p.ID, dest, p.Channel, to); e != nil {
-		return p, dest, e
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return p, "", fmt.Errorf("%s is a symlink — move it manually, then rescan", p.Path)
 	}
-	if e = a.Registry.UpdateFlags(p.ID, true, p.HasMap); e != nil {
-		return p, dest, e
+	if !fi.IsDir() {
+		return p, "", fmt.Errorf("%s is not a directory", p.Path)
 	}
-	return p, dest, nil
+	if !a.knownRoot(p.Path) {
+		return p, "", fmt.Errorf("%s is outside the configured workspace roots — add its root to workspace.root or secondary_roots first", p.Path)
+	}
+	switch _, err := os.Lstat(dest); {
+	case err == nil:
+		return p, "", fmt.Errorf("destination %s already exists — move it out of the way first", dest)
+	case !os.IsNotExist(err):
+		return p, "", err
+	}
+	if filepath.VolumeName(p.Path) != filepath.VolumeName(dest) {
+		return p, "", fmt.Errorf("flow cannot cross volumes: %s and %s", p.Path, dest)
+	}
+	if !pathsafe.Contained(filepath.Join(root, ch), dest) {
+		return p, "", fmt.Errorf("destination %s escapes channel folder %s", dest, filepath.Join(root, ch))
+	}
+	plan := FlowPlan{ID: p.ID, Query: q, FromStage: p.FlowStage, ToStage: to, Src: p.Path, Dst: dest, Root: root, Flatten: flatten,
+		Move:     []string{p.Path + " -> " + dest},
+		Bank:     []string{".metadata/project.toml"},
+		Registry: []string{"update path, stage and flags for " + p.Slug}}
+	_ = plan
+
+	if dry {
+		return p, fmt.Sprintf("DRY RUN: would move %s: %s -> %s", p.Name, p.Path, dest), nil
+	}
+	if e := os.MkdirAll(filepath.Dir(dest), 0755); e != nil {
+		return p, "", e
+	}
+	orig := p
+	moved := orig.Path != dest
+	if moved {
+		if e := os.Rename(orig.Path, dest); e != nil {
+			return p, "", fmt.Errorf("move failed: %w", e)
+		}
+	}
+	fail := func(err error) (registry.Project, string, error) {
+		if moved {
+			if re := os.Rename(dest, orig.Path); re != nil {
+				return orig, "", fmt.Errorf("%w (restoring %s also failed: %v)", err, orig.Path, re)
+			}
+		}
+		_ = bank.Sync(orig, "rivu") // put the old stage back into the moved-back file
+		return orig, "", err
+	}
+	p.Path, p.Channel, p.FlowStage = dest, ch, to
+	if e := bank.Sync(p, "rivu"); e != nil {
+		return fail(fmt.Errorf("update bank: %w", e))
+	}
+	if e := a.Registry.ApplyFlow(p.ID, dest, ch, to, true, p.HasMap); e != nil {
+		return fail(fmt.Errorf("record move: %w", e))
+	}
+	return p, fmt.Sprintf("Flowed %s: %s -> %s", p.Name, orig.Path, dest), nil
+}
+
+// knownRoot reports whether target sits inside any configured workspace root.
+func (a *App) knownRoot(target string) bool {
+	target = resolved(target)
+	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
+	for _, r := range roots {
+		if pathsafe.Contained(resolved(r), target) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolved folds symlinks and Windows 8.3 short names when the path exists,
+// matching how the registry canonicalises stored paths.
+func resolved(p string) string {
+	if x, err := filepath.EvalSymlinks(p); err == nil {
+		return x
+	}
+	return p
 }
 func (a *App) Doctor(q string) ([]doctor.Report, error) {
 	var ps []registry.Project

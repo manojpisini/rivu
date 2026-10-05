@@ -389,11 +389,42 @@ func (r *Registry) SetHealth(id string, score int) error {
 	return err
 }
 
+// ApplyFlow records a completed Flow move in one transaction: path,
+// channel, stage, asset flags and the activity log (P1.43).
+func (r *Registry) ApplyFlow(id, path, channel, flow string, hasBank, hasMap bool) error {
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE projects SET path=?,channel=?,flow_stage=?,has_bank=?,has_map=? WHERE id=?`,
+		canonical(path), channel, flow, b(hasBank), b(hasMap), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("project not found")
+	}
+	if _, err := tx.Exec(`INSERT INTO activity_log(id,project_id,event,occurred_at) VALUES(?,?,?,?)`,
+		uuid.NewString(), id, "flowed", time.Now()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // UpdateFlags refreshes has_bank/has_map immediately after Bank or Map
 // work (B-06) instead of waiting for the next scan to rediscover them.
 func (r *Registry) UpdateFlags(id string, hasBank, hasMap bool) error {
 	_, err := r.DB.Exec(`UPDATE projects SET has_bank=?,has_map=? WHERE id=?`, b(hasBank), b(hasMap), id)
 	return err
+}
+
+// SlugOrPathTaken reports whether any project already owns this slug or
+// path — the Source preflight check (O-01).
+func (r *Registry) SlugOrPathTaken(slug, path string) (bool, error) {
+	var n int
+	err := r.DB.QueryRow(`SELECT count(*) FROM projects WHERE slug=? OR `+pathMatchClause, slug, canonical(path)).Scan(&n)
+	return n > 0, err
 }
 
 // MarkOpened records that a project was opened just now (R-09).

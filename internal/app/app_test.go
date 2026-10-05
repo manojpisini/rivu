@@ -3,10 +3,12 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/manojpisini/rivu/internal/registry"
 )
 
 func TestScanRejectsMissingWorkspaceRoot(t *testing.T) {
@@ -76,6 +78,238 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 	}
 }
 
+func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, err := a.Source("demo", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	// Slug/path collision: rejected before any write.
+	if _, err := a.Source("demo", "source", false, false); err == nil {
+		t.Error("duplicate slug accepted")
+	}
+	// Non-empty existing directory: rejected, contents untouched.
+	taken := filepath.Join(a.Config.Workspace.Root, "00_Source", "taken")
+	if err := os.MkdirAll(taken, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taken, "keep.txt"), []byte("user data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Source("taken", "source", false, false); err == nil {
+		t.Error("non-empty directory accepted without adopt")
+	}
+	if got, _ := os.ReadFile(filepath.Join(taken, "keep.txt")); string(got) != "user data" {
+		t.Errorf("pre-existing content damaged: %q", got)
+	}
+	// Empty existing directory: allowed.
+	empty := filepath.Join(a.Config.Workspace.Root, "00_Source", "emptybox")
+	if err := os.MkdirAll(empty, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Source("emptybox", "source", false, false); err != nil {
+		t.Errorf("empty directory rejected: %v", err)
+	}
+	// git required but not on PATH: rejected before writing.
+	t.Setenv("PATH", t.TempDir())
+	if _, err := a.Source("needs-git", "source", true, false); err == nil {
+		t.Error("missing git accepted")
+	}
+	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "needs-git")); !os.IsNotExist(err) {
+		t.Error("folder created despite failed preflight")
+	}
+}
+
+func TestSourceRollsBackWhatItCreated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	// A fake git that always fails, found via PATH by preflight and exec.
+	bin := t.TempDir()
+	if runtime.GOOS == "windows" {
+		if err := os.WriteFile(filepath.Join(bin, "git.cmd"), []byte("@echo off\r\nexit /b 1\r\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, err := a.Source("doomed", "source", true, false); err == nil {
+		t.Fatal("expected git init failure")
+	}
+	dir := filepath.Join(a.Config.Workspace.Root, "00_Source", "doomed")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("rollback left the created folder behind")
+	}
+	if taken, err := a.Registry.SlugOrPathTaken("doomed", dir); err != nil || taken {
+		t.Errorf("rollback left a registry row: taken=%v err=%v", taken, err)
+	}
+}
+
+func TestFlowPreflightRejectsUnsafeMoves(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, err := a.Source("demo", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	// Destination already exists: rejected before renaming.
+	src := filepath.Join(a.Config.Workspace.Root, "00_Source", "demo")
+	dstDir := filepath.Join(a.Config.Workspace.Root, "01_Active")
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dstDir, "demo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Flow("demo", "active", false, false); err == nil {
+		t.Error("existing destination accepted")
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Errorf("source moved despite failed preflight: %v", err)
+	}
+	os.RemoveAll(filepath.Join(dstDir, "demo"))
+
+	// Project outside every known root: rejected.
+	foreign := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(foreign, "foreign"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Registry.Upsert(registry.Project{ID: "foreign-1", Name: "foreign", Slug: "foreign", Path: filepath.Join(foreign, "foreign"), Channel: "00_Source", FlowStage: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Flow("foreign", "active", false, false); err == nil {
+		t.Error("foreign-path project accepted")
+	}
+	// Missing source folder: rejected with a rescan hint.
+	if err := os.RemoveAll(src); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Flow("demo", "active", false, false); err == nil {
+		t.Error("missing source folder accepted")
+	}
+}
+
+func TestFlowNoOpWhenAlreadyInStage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, err := a.Source("demo", "active", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	p, note, err := a.Flow("demo", "active", false, false)
+	if err != nil {
+		t.Fatalf("Flow: %v", err)
+	}
+	if !strings.Contains(note, "already") {
+		t.Errorf("expected a no-op note, got %q", note)
+	}
+	if p.FlowStage != "active" {
+		t.Errorf("stage changed on no-op: %q", p.FlowStage)
+	}
+}
+
+func TestFlowPreservesSubfolders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, err := a.Source("rivu", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	// Simulate a project living under a nested folder inside its channel.
+	src := filepath.Join(a.Config.Workspace.Root, "00_Source", "devtools", "rivu")
+	if err := os.MkdirAll(filepath.Dir(src), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(a.Config.Workspace.Root, "00_Source", "rivu"), src); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the registered row in sync with the moved folder.
+	p0, err := a.Registry.Resolve("rivu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Registry.UpdatePathFlow(p0.ID, src, "00_Source", "source"); err != nil {
+		t.Fatal(err)
+	}
+
+	p, note, err := a.Flow("rivu", "active", false, false)
+	if err != nil {
+		t.Fatalf("Flow: %v", err)
+	}
+	wantDst := filepath.Join(a.Config.Workspace.Root, "01_Active", "devtools", "rivu")
+	// Flow canonicalises paths; compare in canonical form (Windows 8.3).
+	if x, err := filepath.EvalSymlinks(wantDst); err == nil {
+		wantDst = x
+	}
+	if p.Path != wantDst {
+		t.Errorf("sub-folders collapsed: path=%q note=%q want %q", p.Path, note, wantDst)
+	}
+	if _, err := os.Stat(wantDst); err != nil {
+		t.Errorf("moved folder missing: %v", err)
+	}
+
+	// Flatten drops the intermediate folders.
+	p, note, err = a.Flow("rivu", "maintenance", true, false)
+	if err != nil {
+		t.Fatalf("Flow flatten: %v", err)
+	}
+	wantFlat := filepath.Join(a.Config.Workspace.Root, "02_Maintenance", "rivu")
+	if x, err := filepath.EvalSymlinks(wantFlat); err == nil {
+		wantFlat = x
+	}
+	if p.Path != wantFlat {
+		t.Errorf("flatten ignored: path=%q note=%q want %q", p.Path, note, wantFlat)
+	}
+	if _, err := os.Stat(wantFlat); err != nil {
+		t.Errorf("flattened folder missing: %v", err)
+	}
+}
+
 func TestMapAndFlowSetAssetFlags(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
@@ -121,7 +355,7 @@ func TestMapAndFlowSetAssetFlags(t *testing.T) {
 	if _, err := a.Source("other", "source", false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	if _, _, err := a.Flow("other", "active", false); err != nil {
+	if _, _, err := a.Flow("other", "active", false, false); err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
 	if b, m := flags(t, "other"); !b || m {
@@ -145,7 +379,7 @@ func TestFlowRefreshesBankStage(t *testing.T) {
 	if _, err := a.Source("demo", "source", false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	p, _, err := a.Flow("demo", "active", false)
+	p, _, err := a.Flow("demo", "active", false, false)
 	if err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
