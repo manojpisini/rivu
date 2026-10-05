@@ -37,6 +37,9 @@ metric,value table. The same numbers feed the Stats screen (spec 3.6).`,
 			}
 			switch {
 			case asJSON:
+				if st.ByLanguage == nil {
+					st.ByLanguage = []service.Count{} // scripts get [], never null
+				}
 				return json.NewEncoder(os.Stdout).Encode(struct {
 					Schema int `json:"schema"`
 					service.Stats

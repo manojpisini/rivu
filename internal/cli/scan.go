@@ -56,6 +56,7 @@ that folder for this run without changing the config. --json prints
 				out := scanJSON{
 					Schema:        1,
 					Root:          a.Config.Workspace.Root,
+					Projects:      []projectJSON{}, // scripts get [], never null
 					Warnings:      nonNil(res.Warnings),
 					Missing:       slugsOf(st.Missing),
 					Unregistered:  slugsOf(st.Unregistered),

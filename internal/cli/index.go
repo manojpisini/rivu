@@ -58,6 +58,7 @@ with warnings exits 5.`,
 					scanJSON: scanJSON{
 						Schema:        1,
 						Root:          a.Config.Workspace.Root,
+						Projects:      []projectJSON{}, // scripts get [], never null
 						Warnings:      nonNil(res.Scan.Warnings),
 						Missing:       slugsOf(st.Missing),
 						Unregistered:  slugsOf(st.Unregistered),
