@@ -28,5 +28,8 @@ func Contained(base, target string) bool {
 		return true
 	}
 	sep := string(filepath.Separator)
-	return strings.HasPrefix(absTarget, absBase+sep)
+	if !strings.HasSuffix(absBase, sep) {
+		absBase += sep
+	}
+	return strings.HasPrefix(absTarget, absBase)
 }

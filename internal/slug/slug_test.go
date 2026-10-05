@@ -2,7 +2,9 @@ package slug
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"unicode"
 )
 
 func TestMakeNormalizes(t *testing.T) {
@@ -58,4 +60,39 @@ func TestMakeRejectsUnsafeNames(t *testing.T) {
 			t.Errorf("Make(%q) = %v, want ErrInvalid", in, err)
 		}
 	}
+}
+
+func FuzzMake(f *testing.F) {
+	for _, seed := range []string{"", "  ", "My Project", "../../x", "CON", "a/b", `a\b`, "foo.", "---", "!!!", "rivu_tool", "Le Café", "..", "nul.txt", "tab\there", "already-slug"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, name string) {
+		s, err := Make(name)
+		if err != nil {
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Make(%q) error %v does not wrap ErrInvalid", name, err)
+			}
+			return
+		}
+		if s == "" {
+			t.Fatalf("Make(%q) returned an empty slug with no error", name)
+		}
+		if strings.ContainsAny(s, `/\`) {
+			t.Fatalf("Make(%q) = %q contains a path separator", name, s)
+		}
+		if s != strings.Trim(s, "-") {
+			t.Fatalf("Make(%q) = %q has untrimmed hyphens", name, s)
+		}
+		if s != strings.ToLower(s) {
+			t.Fatalf("Make(%q) = %q is not lowercase", name, s)
+		}
+		if strings.Contains(s, "--") {
+			t.Fatalf("Make(%q) = %q has uncollapsed hyphens", name, s)
+		}
+		for _, r := range s {
+			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-') {
+				t.Fatalf("Make(%q) = %q contains forbidden rune %q", name, s, r)
+			}
+		}
+	})
 }
