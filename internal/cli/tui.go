@@ -11,10 +11,16 @@ func tuiCmd() *cobra.Command {
 		if a.Config.Workspace.AutoRescan {
 			_, _ = a.Scan()
 		}
-		ps, e := a.List()
-		if e != nil {
-			return e
-		}
-		return tui.Run(ps, a.Config.Workspace.Root)
+		return launchTUI(a)
 	})}
+}
+
+// launchTUI starts the terminal interface over the current project list;
+// shared by the root command and `rivu tui`.
+func launchTUI(a *service.App) error {
+	ps, e := a.List()
+	if e != nil {
+		return e
+	}
+	return tui.Run(ps, a.Config.Workspace.Root)
 }

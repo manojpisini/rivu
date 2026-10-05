@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/manojpisini/rivu/internal/service"
-	"github.com/manojpisini/rivu/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -33,11 +32,7 @@ func Root(version, commit, date string) *cobra.Command {
 		return nil
 	}
 	r.RunE = withApp(func(a *service.App, _ []string) error {
-		ps, e := a.List()
-		if e != nil {
-			return e
-		}
-		return tui.Run(ps, a.Config.Workspace.Root)
+		return launchTUI(a)
 	})
 	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd())
 	return r
