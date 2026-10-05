@@ -7,6 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// requireYes enforces the Plan → confirm → Apply gate (spec 1.4.3): a
+// mutating move needs --yes; --dry-run previews instead (exit 4).
+func requireYes(dry, yes bool) error {
+	if !dry && !yes {
+		return fmt.Errorf("flow changes require --yes (or use --dry-run): %w", ErrNeedsConfirm)
+	}
+	return nil
+}
+
 func flowCmd() *cobra.Command {
 	var to string
 	var dry, yes, flatten bool
@@ -15,8 +24,8 @@ func flowCmd() *cobra.Command {
 		if len(args) > 0 {
 			q = args[0]
 		}
-		if !dry && !yes {
-			return fmt.Errorf("flow changes require --yes (or use --dry-run): %w", ErrNeedsConfirm)
+		if err := requireYes(dry, yes); err != nil {
+			return err
 		}
 		fr, e := a.Flow(q, to, flatten, dry)
 		if e != nil {
