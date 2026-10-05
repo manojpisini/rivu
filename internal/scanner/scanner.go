@@ -3,6 +3,7 @@ package scanner
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -111,6 +112,54 @@ func classify(path string) (string, []string, bool) {
 	return lang, stack, strong
 }
 
+// junkDirs are OS noise that never contains user projects.
+func isJunk(name string) bool {
+	return strings.EqualFold(name, "$RECYCLE.BIN") ||
+		strings.EqualFold(name, "System Volume Information")
+}
+
+// loadIgnorePatterns reads <root>/.rivuignore: a gitignore subset — blank
+// lines, # comments, trailing / (dir-only), leading or embedded / (anchored
+// to root), path.Match globs otherwise. ponytail: root-level file only, no
+// ! negation and no ** support — add per-dir discovery if users ask.
+func loadIgnorePatterns(root string) []string {
+	b, err := os.ReadFile(filepath.Join(root, ".rivuignore"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// ignored reports whether a directory's root-relative path matches any
+// .rivuignore pattern.
+func ignored(patterns []string, rel string) bool {
+	for _, p := range patterns {
+		anchored := strings.HasPrefix(p, "/")
+		p = strings.Trim(p, "/")
+		if p == "" {
+			continue
+		}
+		var ok bool
+		if anchored || strings.Contains(p, "/") {
+			ok, _ = path.Match(p, filepath.ToSlash(rel))
+		} else {
+			ok, _ = path.Match(p, filepath.Base(rel))
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Scan walks root and returns discovered projects. A missing or non-directory
 // root is an error; per-entry failures (permission denied, vanished files)
 // are collected as warnings so one bad folder never aborts the scan.
@@ -125,6 +174,7 @@ func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 	if !fi.IsDir() {
 		return nil, nil, fmt.Errorf("workspace root %s is not a directory", root)
 	}
+	ignorePatterns := loadIgnorePatterns(root)
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			warnings = append(warnings, fmt.Errorf("skipped %s: %w", path, err))
@@ -136,10 +186,17 @@ func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 			depth = len(strings.Split(rel, string(os.PathSeparator)))
 		}
 		if d.IsDir() && path != root {
-			if s.Ignore[d.Name()] || depth > s.MaxDepth {
+			name := d.Name()
+			// Default-skip: dot-dirs (except .metadata), OS junk, config
+			// ignore names, workspace .rivuignore patterns, over depth.
+			if (strings.HasPrefix(name, ".") && name != ".metadata") ||
+				isJunk(name) ||
+				s.Ignore[name] ||
+				ignored(ignorePatterns, rel) ||
+				depth > s.MaxDepth {
 				return filepath.SkipDir
 			}
-			sl, errSlug := slug.Make(d.Name())
+			sl, errSlug := slug.Make(name)
 			if errSlug != nil {
 				// Unsluggable folder names can never be registered safely.
 				return filepath.SkipDir

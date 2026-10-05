@@ -73,6 +73,78 @@ func TestClassifyMarkers(t *testing.T) {
 	}
 }
 
+func TestScanSkipsDotAndJunkDirs(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{
+		filepath.Join(root, ".Trash", "old-proj"),
+		filepath.Join(root, "$RECYCLE.BIN", "recycled"),
+		filepath.Join(root, "System Volume Information", "svi"),
+	} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("junk/dot dirs must be skipped, found %#v", got)
+	}
+}
+
+func TestScanKeepsMetadataDir(t *testing.T) {
+	root := t.TempDir()
+	d := filepath.Join(root, ".metadata")
+	if err := os.MkdirAll(d, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module m"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Errorf(".metadata is the documented dot-dir exception, found %d", len(got))
+	}
+}
+
+func TestScanHonorsRivuignore(t *testing.T) {
+	root := t.TempDir()
+	ignore := "# skip noise\nbuild/\ntemp*\n/deep-skip\nmiddle/\n"
+	if err := os.WriteFile(filepath.Join(root, ".rivuignore"), []byte(ignore), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"build", "temporal", "a/middle", "deep-skip", "src/deep-skip"} {
+		p := filepath.Join(root, filepath.FromSlash(d))
+		if err := os.MkdirAll(p, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "build/", "temp*", "middle/" match any depth; "/deep-skip" is
+	// anchored to root, so src/deep-skip must still be discovered.
+	if len(got) != 1 || got[0].Name != "deep-skip" ||
+		!strings.HasSuffix(got[0].Path, filepath.Join("src", "deep-skip")) {
+		var names []string
+		for _, p := range got {
+			names = append(names, p.Path)
+		}
+		t.Errorf(".rivuignore not honored, discovered: %v", names)
+	}
+}
+
 func TestScanAdoptsBankID(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "demo")
