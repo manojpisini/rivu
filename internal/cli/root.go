@@ -12,9 +12,11 @@ import (
 )
 
 // Root assembles the full command tree. version/commit/date come from
-// main, where the ldflags targets live.
+// main, where the ldflags targets live; unresolved defaults fall back
+// to build info (X-05).
 func Root(version, commit, date string) *cobra.Command {
-	return newRoot(version, commit, date, new(bool))
+	v, c, d := buildInfo(version, commit, date)
+	return newRoot(v, c, d, new(bool))
 }
 
 // Run executes the command tree with args and returns the process exit
@@ -22,7 +24,8 @@ func Root(version, commit, date string) *cobra.Command {
 // 5 warnings).
 func Run(version, commit, date string, args []string) int {
 	ran := new(bool)
-	r := newRoot(version, commit, date, ran)
+	v, c, d := buildInfo(version, commit, date)
+	r := newRoot(v, c, d, ran)
 	r.SetArgs(args)
 	return ExitCode(r.Execute(), *ran)
 }
@@ -51,7 +54,7 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	r.RunE = withApp(func(a *service.App, _ []string) error {
 		return launchTUI(a)
 	})
-	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd())
+	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd(), versionCmd(version, commit, date))
 	return r
 }
 
