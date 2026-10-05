@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestScanRejectsMissingWorkspaceRoot(t *testing.T) {
@@ -71,6 +73,39 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a secondary-root warning, got %v", a.ScanWarnings)
+	}
+}
+
+func TestFlowRefreshesBankStage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+	a.Config.Automation.CreateBank = true
+
+	if _, err := a.Source("demo", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	p, _, err := a.Flow("demo", "active", false)
+	if err != nil {
+		t.Fatalf("Flow: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]map[string]any
+	if _, err := toml.Decode(string(b), &doc); err != nil {
+		t.Fatalf("moved project.toml must parse: %v", err)
+	}
+	if doc["rivu"]["flow_stage"] != "active" || doc["rivu"]["channel"] != "01_Active" {
+		t.Errorf("stale project.toml after Flow: %v", doc["rivu"])
 	}
 }
 

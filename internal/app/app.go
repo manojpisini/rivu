@@ -162,7 +162,7 @@ func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
 	p.Path = dest
 	p.Channel = channel(to)
 	p.FlowStage = to
-	if e = bank.Build(p, "rivu"); e != nil {
+	if e = bank.Sync(p, "rivu"); e != nil {
 		return p, dest, e
 	}
 	if e = a.Registry.UpdatePathFlow(p.ID, dest, p.Channel, to); e != nil {
