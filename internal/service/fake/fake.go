@@ -74,6 +74,19 @@ func (f *Service) Flow(q, to string, flatten, dry bool) (service.FlowResult, err
 	return f.FlowRes, f.FlowErr
 }
 
+func (f *Service) FlowBulk(queries []string, to string, flatten, dry bool) (service.BulkFlowResult, error) {
+	f.record("FlowBulk -> " + to)
+	var out service.BulkFlowResult
+	for _, q := range queries {
+		if f.FlowErr != nil {
+			out.Failed = append(out.Failed, service.FlowFailure{Query: q, Err: f.FlowErr})
+			continue
+		}
+		out.Done = append(out.Done, f.FlowRes)
+	}
+	return out, nil
+}
+
 func (f *Service) Map(q string) error {
 	f.record("Map " + q)
 	return f.MapErr

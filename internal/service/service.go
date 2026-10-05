@@ -38,6 +38,7 @@ type Service interface {
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name string, o SourceOpts) (SourceResult, error)
 	Flow(q, to string, flatten, dry bool) (FlowResult, error)
+	FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlowResult, error)
 	Map(q string) error
 	OpenProject(q, editor string) error
 	Current() (registry.Project, bool)
@@ -451,6 +452,25 @@ func (a *App) Flow(q, to string, flatten, dry bool) (FlowResult, error) {
 		return fail(fmt.Errorf("record move: %w", e))
 	}
 	return FlowResult{Project: p, Plan: plan, Note: fmt.Sprintf("Flowed %s: %s -> %s", p.Name, orig.Path, dest)}, nil
+}
+
+// FlowBulk applies Flow to each query, continuing past failures so one
+// bad slug never blocks the rest (spec 2.9 bulk). Only pre-validation
+// (bad target stage) fails the whole call.
+func (a *App) FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlowResult, error) {
+	if !validFlow(to) {
+		return BulkFlowResult{}, fmt.Errorf("invalid flow stage %q", to)
+	}
+	var out BulkFlowResult
+	for _, q := range queries {
+		fr, err := a.Flow(q, to, flatten, dry)
+		if err != nil {
+			out.Failed = append(out.Failed, FlowFailure{Query: q, Err: err})
+			continue
+		}
+		out.Done = append(out.Done, fr)
+	}
+	return out, nil
 }
 
 // knownRoot reports whether target sits inside any configured workspace root.

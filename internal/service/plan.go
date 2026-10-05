@@ -52,3 +52,17 @@ type FlowPlan struct {
 	Registry                      []string
 	Bank                          []string
 }
+
+// BulkFlowResult is the typed outcome of FlowBulk: every move that
+// happened plus every query that failed, so callers can report partial
+// success without re-running anything.
+type BulkFlowResult struct {
+	Done   []FlowResult
+	Failed []FlowFailure
+}
+
+// FlowFailure is one query that could not move, with the reason.
+type FlowFailure struct {
+	Query string
+	Err   error
+}
