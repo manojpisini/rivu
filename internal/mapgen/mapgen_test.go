@@ -125,6 +125,9 @@ func TestProjectMapGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden (run with -update to create): %v", err)
 	}
+	// Golden files may check out with CRLF on Windows; generated content
+	// always uses LF — compare normalized so all three OSes agree.
+	want = []byte(strings.ReplaceAll(string(want), "\r\n", "\n"))
 	if string(got) != string(want) {
 		t.Errorf("PROJECT_MAP.md mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
