@@ -242,18 +242,18 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Proj
 // content (adopt mode) is never touched — safety rule 1.
 func rollbackSource(path string, createdRoot, wasEmpty, gitRan, metaRan bool) {
 	if createdRoot {
-		_ = os.RemoveAll(path)
+		_ = os.RemoveAll(path) // rivu-allow-remove: root this run created
 		return
 	}
 	if !wasEmpty {
 		return
 	}
 	if metaRan {
-		_ = os.RemoveAll(filepath.Join(path, ".metadata"))
+		_ = os.RemoveAll(filepath.Join(path, ".metadata")) // rivu-allow-remove: bank this run created
 	}
 	if gitRan {
-		_ = os.RemoveAll(filepath.Join(path, ".git"))
-		_ = os.Remove(filepath.Join(path, ".gitignore"))
+		_ = os.RemoveAll(filepath.Join(path, ".git"))    // rivu-allow-remove: git dir this run created
+		_ = os.Remove(filepath.Join(path, ".gitignore")) // rivu-allow-remove: gitignore this run created
 	}
 }
 

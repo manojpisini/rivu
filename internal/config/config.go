@@ -242,24 +242,24 @@ func Save(c Config) error {
 	tmp := f.Name()
 	if err = toml.NewEncoder(f).Encode(c); err != nil {
 		f.Close()
-		os.Remove(tmp)
+		os.Remove(tmp) // rivu-allow-remove: Save's own temp file
 		return fmt.Errorf("encode config: %w", err)
 	}
 	if err = f.Sync(); err != nil {
 		f.Close()
-		os.Remove(tmp)
+		os.Remove(tmp) // rivu-allow-remove: Save's own temp file
 		return fmt.Errorf("flush config: %w", err)
 	}
 	if err = f.Close(); err != nil {
-		os.Remove(tmp)
+		os.Remove(tmp) // rivu-allow-remove: Save's own temp file
 		return fmt.Errorf("close config: %w", err)
 	}
 	if err = os.Chmod(tmp, 0600); err != nil {
-		os.Remove(tmp)
+		os.Remove(tmp) // rivu-allow-remove: Save's own temp file
 		return fmt.Errorf("secure config: %w", err)
 	}
 	if err = os.Rename(tmp, p); err != nil {
-		os.Remove(tmp)
+		os.Remove(tmp) // rivu-allow-remove: Save's own temp file
 		return fmt.Errorf("replace config: %w", err)
 	}
 	return nil
