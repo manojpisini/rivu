@@ -27,6 +27,23 @@ type App struct {
 	ConfigWarnings []string
 }
 
+// Service is the use-case surface the TUI and CLI depend on: typed
+// results, never printing (spec 1.4.4 — every TUI action has a CLI
+// equivalent over the same layer). *App implements it; tests use the
+// hand-written fake in internal/service/fake.
+type Service interface {
+	List() ([]registry.Project, error)
+	Scan() (ScanResult, error)
+	Doctor(q string) ([]doctor.Report, error)
+	Source(name, flow string, gitInit, adopt, dry bool) (SourceResult, error)
+	Flow(q, to string, flatten, dry bool) (FlowResult, error)
+	Map(q string) error
+	OpenProject(q string) error
+	Current() (registry.Project, bool)
+}
+
+var _ Service = (*App)(nil)
+
 func Open() (*App, error) {
 	c, warns, e := config.Load()
 	if e != nil {
@@ -45,6 +62,18 @@ func Open() (*App, error) {
 	return &App{Config: c, Registry: r, ConfigWarnings: warns}, nil
 }
 func (a *App) Close() error { return a.Registry.Close() }
+
+// List returns every lifecycle-tracked project ordered for display.
+func (a *App) List() ([]registry.Project, error) { return a.Registry.List() }
+
+// Current returns the current project and whether one is set.
+func (a *App) Current() (registry.Project, bool) {
+	p, err := a.Registry.Current()
+	if err != nil {
+		return registry.Project{}, false
+	}
+	return p, true
+}
 func (a *App) Scan() (ScanResult, error) {
 	if e := config.ValidateRoot(a.Config); e != nil {
 		return ScanResult{}, e

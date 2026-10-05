@@ -702,3 +702,31 @@ func TestOpenProjectOpensOnDisk(t *testing.T) {
 		t.Errorf("project state after open: %+v", got)
 	}
 }
+
+func TestListAndCurrent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	if _, ok := a.Current(); ok {
+		t.Error("Current set before any project exists")
+	}
+	if _, err := a.Source("solo", "source", false, false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	ps, err := a.List()
+	if err != nil || len(ps) != 1 || ps[0].Name != "solo" {
+		t.Errorf("List = %v, %v; want one project solo", ps, err)
+	}
+	p, ok := a.Current()
+	if !ok || p.Name != "solo" {
+		t.Errorf("Current = %+v, %v; want solo", p, ok)
+	}
+}
