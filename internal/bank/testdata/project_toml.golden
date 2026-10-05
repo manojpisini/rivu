@@ -1,0 +1,12 @@
+[rivu]
+  channel = "01_Active"
+  confluences = ["db", "queue"]
+  created_at = "2024-05-06T07:08:09Z"
+  flow_stage = "active"
+  git_init_owner = "me"
+  id = "id-1"
+  name = "Demo"
+  slug = "demo"
+
+[user]
+  notes = "keep me"

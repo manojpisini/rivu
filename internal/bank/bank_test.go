@@ -1,6 +1,7 @@
 package bank
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/manojpisini/rivu/internal/registry"
 )
+
+var update = flag.Bool("update", false, "rewrite golden files")
 
 func TestBuildProtectsExistingFiles(t *testing.T) {
 	p := registry.Project{ID: "1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source"}
@@ -96,6 +99,41 @@ func TestSyncRewritesStageAndPreservesExtras(t *testing.T) {
 		if string(got) != "human:"+f {
 			t.Errorf("%s overwritten by Sync: %q", f, got)
 		}
+	}
+}
+
+func TestSyncGolden(t *testing.T) {
+	created := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
+	p := registry.Project{ID: "id-1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "active", Channel: "01_Active", CreatedAt: created}
+	seed := "[rivu]\nid = \"1\"\nname = \"Old\"\nslug = \"old\"\nflow_stage = \"source\"\nchannel = \"00_Source\"\nconfluences = [\"db\", \"queue\"]\ngit_init_owner = \"me\"\ncreated_at = \"2024-05-06T07:08:09Z\"\n\n[user]\nnotes = \"keep me\"\n"
+	if err := os.MkdirAll(filepath.Join(p.Path, ".metadata"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Path, ".metadata", "project.toml"), []byte(seed), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Sync(p, "rivu"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	golden := filepath.Join("testdata", "project_toml.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, got, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("project.toml mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

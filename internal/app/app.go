@@ -127,7 +127,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 		p.HasBank = true
 	}
 	if a.Config.Automation.BuildMap {
-		if e := mapgen.Build(p); e != nil {
+		if e := mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 			return p, e
 		}
 		p.HasMap = true
@@ -204,7 +204,7 @@ func (a *App) Map(q string) error {
 	if e = bank.Build(p, "rivu"); e != nil {
 		return e
 	}
-	if e = mapgen.Build(p); e != nil {
+	if e = mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 		return e
 	}
 	return a.Registry.UpdateFlags(p.ID, true, true)
