@@ -78,6 +78,70 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 	}
 }
 
+func TestSourceGitInitExclusivity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+	owner := func(t *testing.T, slug string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(a.Config.Workspace.Root, "00_Source", slug, ".metadata", "project.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]map[string]any
+		if _, err := toml.Decode(string(b), &doc); err != nil {
+			t.Fatal(err)
+		}
+		s, _ := doc["rivu"]["git_init_owner"].(string)
+		return s
+	}
+
+	// Bridge owns init: --git is auto-corrected away with a warning.
+	a.Config.Bridge.Enabled = true
+	if _, err := a.Source("bridged", "source", true, false); err != nil {
+		t.Fatalf("Source with bridge: %v", err)
+	}
+	if len(a.SourceWarnings) != 1 || !strings.Contains(a.SourceWarnings[0], "bridge owns git init") {
+		t.Errorf("expected an auto-correction warning, got %v", a.SourceWarnings)
+	}
+	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "bridged", ".git")); !os.IsNotExist(err) {
+		t.Error("rivu ran git init despite the bridge owning it")
+	}
+	if got := owner(t, "bridged"); got != "bridge" {
+		t.Errorf("git_init_owner = %q, want bridge", got)
+	}
+
+	// Bridge off, git requested: rivu inits and records itself.
+	a.Config.Bridge.Enabled = false
+	if _, err := a.Source("selfinit", "source", true, false); err != nil {
+		t.Fatalf("Source with git: %v", err)
+	}
+	if len(a.SourceWarnings) != 0 {
+		t.Errorf("unexpected warnings: %v", a.SourceWarnings)
+	}
+	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "selfinit", ".git")); err != nil {
+		t.Errorf("git init did not run: %v", err)
+	}
+	if got := owner(t, "selfinit"); got != "rivu" {
+		t.Errorf("git_init_owner = %q, want rivu", got)
+	}
+
+	// Nobody inits: recorded as none, not rivu (O-02).
+	if _, err := a.Source("noinit", "source", false, false); err != nil {
+		t.Fatalf("Source without git: %v", err)
+	}
+	if got := owner(t, "noinit"); got != "none" {
+		t.Errorf("git_init_owner = %q, want none", got)
+	}
+}
+
 func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)

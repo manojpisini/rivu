@@ -106,6 +106,9 @@ func sourceCmd() *cobra.Command {
 		} else {
 			fmt.Printf("Sourced %s [%s] at %s\n", p.Name, p.FlowStage, p.Path)
 		}
+		for _, w := range a.SourceWarnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
 		return nil
 	})}
 	c.PreRun = func(_ *cobra.Command, args []string) { argsName = args[0] }

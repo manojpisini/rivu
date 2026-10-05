@@ -26,6 +26,9 @@ type App struct {
 	ConfigWarnings []string
 	// ScanWarnings lists per-project failures from the last Scan.
 	ScanWarnings []string
+	// SourceWarnings lists corrections applied by the last Source, such as
+	// git init being skipped because the bridge owns it (spec 1.7).
+	SourceWarnings []string
 }
 
 func Open() (*App, error) {
@@ -107,6 +110,22 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 	}
 	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
 
+	// Spec 1.7 exclusivity: when the bridge owns git init, rivu never runs
+	// its own — warn and auto-correct rather than double-init.
+	a.SourceWarnings = nil
+	bridgeOwns := a.Config.Automation.BridgeOwnsGitInit && a.Config.Bridge.Enabled
+	gitOwner := "none"
+	if bridgeOwns {
+		gitOwner = "bridge"
+		if gitInit {
+			gitInit = false
+			a.SourceWarnings = append(a.SourceWarnings,
+				"bridge owns git init (automation.bridge_owns_git_init) — skipped rivu git init for "+s)
+		}
+	} else if gitInit {
+		gitOwner = "rivu"
+	}
+
 	// Preflight (O-01): every check runs before the first write, so a
 	// rejected Source never leaves half-created folders behind.
 	plan := SourcePlan{Name: name, Slug: s, Channel: ch, FlowStage: flow, ChannelDir: chDir, Path: path}
@@ -174,7 +193,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 	}
 	if a.Config.Automation.CreateBank {
 		metaRan = true
-		if e := bank.Build(p, "rivu"); e != nil {
+		if e := bank.Build(p, gitOwner); e != nil {
 			return fail(e)
 		}
 		p.HasBank = true
@@ -353,7 +372,7 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 	}
 	out := make([]doctor.Report, 0, len(ps))
 	for _, p := range ps {
-		r := doctor.Run(p)
+		r := doctor.Run(p, a.Config.Bridge.ScaffoldMark)
 		_ = a.Registry.SetHealth(p.ID, r.Score)
 		out = append(out, r)
 	}
