@@ -45,7 +45,7 @@ rivu list
 rivu tui
 ```
 
-The first run creates `~/.rivu/config.toml` with defaults. Set `[workspace].root` to your project workspace before scanning.
+Start fresh with `rivu init --root <path>` — it creates the config and database and validates the root. Without it, the first run creates `~/.rivu/config.toml` with defaults; set `[workspace].root` before scanning.
 
 Set `RIVU_HOME` to relocate Rivu's home (config + database) and `RIVU_CONFIG` to point at a specific config file — useful for isolated testing or per-project setups. Global flags `--home` and `--config` do the same per invocation.
 
@@ -61,6 +61,15 @@ rivu doctor my-project                         # health checks with remedies
 rivu agent sync my-project                     # build the agent Map
 rivu stats                                     # portfolio metrics
 rivu dashboard                                 # dashboard snapshot
+rivu path my-project                           # print path only (scripts)
+```
+
+## Shell integration
+
+`rivu path` prints nothing but the path, so a wrapper function can jump straight to a project:
+
+```bash
+rcd() { cd "$(rivu path "$@")"; }   # then: rcd my-project
 ```
 
 ## Safety
