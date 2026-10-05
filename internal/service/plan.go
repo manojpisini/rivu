@@ -58,11 +58,27 @@ type FlowPlan struct {
 // success without re-running anything.
 type BulkFlowResult struct {
 	Done   []FlowResult
-	Failed []FlowFailure
+	Failed []Failure
 }
 
-// FlowFailure is one query that could not move, with the reason.
-type FlowFailure struct {
+// Failure is one query that a bulk operation could not process, with
+// the reason. FlowBulk and MapBulk share it.
+type Failure struct {
 	Query string
 	Err   error
+}
+
+// MapStatus reports what an agent Map sync would change for one
+// project, without writing anything (P2.19 --check/--dry-run).
+type MapStatus struct {
+	Project       registry.Project
+	AgentsMissing bool
+	MapStale      bool
+}
+
+// BulkMapResult is the typed outcome of MapBulk, mirroring
+// BulkFlowResult.
+type BulkMapResult struct {
+	Done   []registry.Project
+	Failed []Failure
 }

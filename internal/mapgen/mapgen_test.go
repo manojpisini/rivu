@@ -80,6 +80,37 @@ func TestProjectMapHeaderHashAndSkipRewrite(t *testing.T) {
 	}
 }
 
+func TestStatusMirrorsBuild(t *testing.T) {
+	p := fixture(t)
+	missing, stale := Status(p, nil)
+	if !missing || !stale {
+		t.Errorf("before build: missing=%v stale=%v, want both true", missing, stale)
+	}
+	if err := Build(p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if missing, stale = Status(p, nil); missing || stale {
+		t.Errorf("after build: missing=%v stale=%v, want both false", missing, stale)
+	}
+	if err := os.WriteFile(filepath.Join(p.Path, "extra.go"), []byte("package x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, stale = Status(p, nil); !stale {
+		t.Error("new file did not make the map stale")
+	}
+	// Status never writes.
+	agents := filepath.Join(p.Path, ".metadata", "agent", "AGENTS.md")
+	if err := os.Remove(agents); err != nil {
+		t.Fatal(err)
+	}
+	if missing, _ = Status(p, nil); !missing {
+		t.Error("missing AGENTS.md not reported")
+	}
+	if _, err := os.Stat(agents); err == nil {
+		t.Error("Status wrote AGENTS.md")
+	}
+}
+
 func TestBuildSharesIgnoreList(t *testing.T) {
 	p := fixture(t)
 	if err := Build(p, []string{"scratch"}); err != nil {

@@ -14,19 +14,20 @@ import (
 // and *Err fields, then assert on Calls. Reads (List, Current) are not
 // recorded so View-style polling does not flood the log.
 type Service struct {
-	Projects   []registry.Project
-	ScanRes    service.ScanResult
-	ScanErr    error
-	DoctorRes  []doctor.Report
-	DoctorErr  error
-	SourceRes  service.SourceResult
-	SourceErr  error
-	FlowRes    service.FlowResult
-	FlowErr    error
-	MapErr     error
-	OpenErr    error
-	CurrentP   registry.Project
-	HasCurrent bool
+	Projects    []registry.Project
+	ScanRes     service.ScanResult
+	ScanErr     error
+	DoctorRes   []doctor.Report
+	DoctorErr   error
+	SourceRes   service.SourceResult
+	SourceErr   error
+	FlowRes     service.FlowResult
+	FlowErr     error
+	MapErr      error
+	MapStatuses []service.MapStatus
+	OpenErr     error
+	CurrentP    registry.Project
+	HasCurrent  bool
 
 	mu    sync.Mutex
 	calls []string
@@ -79,7 +80,7 @@ func (f *Service) FlowBulk(queries []string, to string, flatten, dry bool) (serv
 	var out service.BulkFlowResult
 	for _, q := range queries {
 		if f.FlowErr != nil {
-			out.Failed = append(out.Failed, service.FlowFailure{Query: q, Err: f.FlowErr})
+			out.Failed = append(out.Failed, service.Failure{Query: q, Err: f.FlowErr})
 			continue
 		}
 		out.Done = append(out.Done, f.FlowRes)
@@ -90,6 +91,23 @@ func (f *Service) FlowBulk(queries []string, to string, flatten, dry bool) (serv
 func (f *Service) Map(q string) error {
 	f.record("Map " + q)
 	return f.MapErr
+}
+
+func (f *Service) MapStatus(q string, all bool) ([]service.MapStatus, error) {
+	return f.MapStatuses, f.MapErr
+}
+
+func (f *Service) MapBulk() (service.BulkMapResult, error) {
+	f.record("MapBulk")
+	var out service.BulkMapResult
+	if f.MapErr != nil {
+		for _, p := range f.Projects {
+			out.Failed = append(out.Failed, service.Failure{Query: p.Slug, Err: f.MapErr})
+		}
+		return out, nil
+	}
+	out.Done = f.Projects
+	return out, nil
 }
 
 func (f *Service) OpenProject(q, editor string) error {

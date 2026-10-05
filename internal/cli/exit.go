@@ -2,8 +2,10 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/service"
 )
 
 var (
@@ -34,4 +36,28 @@ func ExitCode(err error, ran bool) int {
 	default:
 		return 1
 	}
+}
+
+// bulkFail classifies failures from a bulk operation (FlowBulk,
+// MapBulk): missing/ambiguous queries become exit-3 errors joined at
+// the end, any other failure wins first as exit 1. Empty queries are
+// labelled (current).
+func bulkFail(fs []service.Failure) error {
+	var missing, other []error
+	for _, f := range fs {
+		label := f.Query
+		if label == "" {
+			label = "(current)"
+		}
+		wrapped := fmt.Errorf("%s: %w", label, f.Err)
+		if errors.Is(f.Err, registry.ErrNotFound) || errors.Is(f.Err, registry.ErrAmbiguous) {
+			missing = append(missing, wrapped)
+		} else {
+			other = append(other, wrapped)
+		}
+	}
+	if len(other) > 0 {
+		return errors.Join(other...)
+	}
+	return errors.Join(missing...)
 }

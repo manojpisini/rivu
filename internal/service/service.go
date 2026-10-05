@@ -40,6 +40,8 @@ type Service interface {
 	Flow(q, to string, flatten, dry bool) (FlowResult, error)
 	FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlowResult, error)
 	Map(q string) error
+	MapStatus(q string, all bool) ([]MapStatus, error)
+	MapBulk() (BulkMapResult, error)
 	OpenProject(q, editor string) error
 	OpenCommand(q, editor string) ([]string, error)
 	Current() (registry.Project, bool)
@@ -466,7 +468,7 @@ func (a *App) FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlow
 	for _, q := range queries {
 		fr, err := a.Flow(q, to, flatten, dry)
 		if err != nil {
-			out.Failed = append(out.Failed, FlowFailure{Query: q, Err: err})
+			out.Failed = append(out.Failed, Failure{Query: q, Err: err})
 			continue
 		}
 		out.Done = append(out.Done, fr)
@@ -529,6 +531,49 @@ func (a *App) Map(q string) error {
 		return e
 	}
 	return a.Registry.UpdateFlags(p.ID, true, true)
+}
+
+// MapStatus reports Map freshness for one project (q) or every project
+// (all), writing nothing — the read side of agent sync.
+func (a *App) MapStatus(q string, all bool) ([]MapStatus, error) {
+	var ps []registry.Project
+	if all {
+		var e error
+		ps, e = a.Registry.List()
+		if e != nil {
+			return nil, e
+		}
+	} else {
+		p, e := a.Registry.Resolve(q)
+		if e != nil {
+			return nil, e
+		}
+		ps = []registry.Project{p}
+	}
+	out := make([]MapStatus, 0, len(ps))
+	for _, p := range ps {
+		missing, stale := mapgen.Status(p, a.Config.Scanner.Ignore)
+		out = append(out, MapStatus{Project: p, AgentsMissing: missing, MapStale: stale})
+	}
+	return out, nil
+}
+
+// MapBulk builds the Map for every project, continuing past failures so
+// one broken folder never blocks the rest.
+func (a *App) MapBulk() (BulkMapResult, error) {
+	ps, e := a.Registry.List()
+	if e != nil {
+		return BulkMapResult{}, e
+	}
+	var out BulkMapResult
+	for _, p := range ps {
+		if err := a.Map(p.Slug); err != nil {
+			out.Failed = append(out.Failed, Failure{Query: p.Slug, Err: err})
+			continue
+		}
+		out.Done = append(out.Done, p)
+	}
+	return out, nil
 }
 
 // OpenCommand resolves q and the editor and returns the argv that

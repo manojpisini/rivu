@@ -2,13 +2,11 @@ package cli
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -59,23 +57,7 @@ projects: every failure is reported and the exit code reflects it.`,
 					fmt.Println(fr.Note)
 				}
 			}
-			var missing, other []error
-			for _, f := range res.Failed {
-				label := f.Query
-				if label == "" {
-					label = "(current)"
-				}
-				wrapped := fmt.Errorf("%s: %w", label, f.Err)
-				if errors.Is(f.Err, registry.ErrNotFound) || errors.Is(f.Err, registry.ErrAmbiguous) {
-					missing = append(missing, wrapped)
-				} else {
-					other = append(other, wrapped)
-				}
-			}
-			if len(other) > 0 {
-				return errors.Join(other...)
-			}
-			return errors.Join(missing...)
+			return bulkFail(res.Failed)
 		}),
 	}
 	c.Flags().StringVar(&to, "to", "", "Target: source|active|maintenance|research|delta")

@@ -72,6 +72,17 @@ func requireFlag(name string) cobra.PositionalArgs {
 	}
 }
 
+// exclusiveAll rejects --all combined with a positional project
+// during the args stage (exit 2), before any I/O runs.
+func exclusiveAll(all *bool) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if *all && len(args) > 0 {
+			return fmt.Errorf("give either a project or --all, not both")
+		}
+		return nil
+	}
+}
+
 // enumFlag validates a flag's value during the args stage, so a bad
 // value exits 2 (usage) before any I/O runs. Empty means "not set".
 func enumFlag(name string, allowed ...string) cobra.PositionalArgs {
