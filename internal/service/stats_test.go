@@ -67,6 +67,17 @@ func TestStatsMath(t *testing.T) {
 	}
 }
 
+func TestHealthBandBoundaries(t *testing.T) {
+	for h, want := range map[int]string{
+		100: "90-100", 90: "90-100", 89: "70-89", 70: "70-89",
+		69: "50-69", 50: "50-69", 49: "0-49", 0: "0-49", -3: "0-49",
+	} {
+		if got := healthBand(h); got != want {
+			t.Errorf("healthBand(%d) = %q, want %q", h, got, want)
+		}
+	}
+}
+
 func TestMedian(t *testing.T) {
 	for _, tc := range []struct {
 		in   []int

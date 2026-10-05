@@ -95,6 +95,29 @@ func TestListFiltersAndSort(t *testing.T) {
 	}
 }
 
+func TestSortProjectsTimeKeysAndUnknown(t *testing.T) {
+	now := time.Now()
+	ps := []registry.Project{
+		{Slug: "never", CreatedAt: now},
+		{Slug: "fresh", CreatedAt: now.Add(-time.Hour), LastOpenedAt: now},
+		{Slug: "stale", CreatedAt: now.AddDate(0, 0, -30), LastOpenedAt: now.AddDate(0, 0, -30)},
+	}
+	order := func() []string { return slugs(ps) }
+
+	sortProjects(ps, "created")
+	if got := strings.Join(order(), ","); got != "never,fresh,stale" {
+		t.Errorf("sort created = %s, want never,fresh,stale (newest first)", got)
+	}
+	sortProjects(ps, "opened")
+	if got := strings.Join(order(), ","); got != "fresh,stale,never" {
+		t.Errorf("sort opened = %s, want fresh,stale,never (never-opened last)", got)
+	}
+	sortProjects(ps, "unknown-key")
+	if got := strings.Join(order(), ","); got != "fresh,stale,never" {
+		t.Errorf("unknown sort key must leave the order untouched, got %s", got)
+	}
+}
+
 func TestListConfluenceFilter(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)

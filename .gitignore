@@ -2,6 +2,8 @@
 /rivu.exe
 /dist/
 coverage.out
+cover.out
+cover
 *.test
 *.db
 *.db-shm
