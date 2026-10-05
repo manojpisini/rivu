@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/manojpisini/rivu/internal/cli"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 )
@@ -32,7 +33,7 @@ func TestE2EHeadless(t *testing.T) {
 
 	run := func(args ...string) {
 		t.Helper()
-		r := root()
+		r := cli.Root("test", "dev", "unknown")
 		r.SetArgs(args)
 		r.SetOut(io.Discard)
 		r.SetErr(io.Discard)

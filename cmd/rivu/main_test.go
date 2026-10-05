@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/manojpisini/rivu/internal/cli"
 )
 
 func TestHomeFlagSetsEnv(t *testing.T) {
@@ -11,7 +13,7 @@ func TestHomeFlagSetsEnv(t *testing.T) {
 	t.Setenv("RIVU_HOME", "")
 	t.Setenv("RIVU_CONFIG", "")
 
-	r := root()
+	r := cli.Root("test", "dev", "unknown")
 	r.SetArgs([]string{"--home", home, "config", "path"})
 	if err := r.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -27,7 +29,7 @@ func TestConfigFlagOverridesPath(t *testing.T) {
 	t.Setenv("RIVU_HOME", dir)
 	t.Setenv("RIVU_CONFIG", "")
 
-	r := root()
+	r := cli.Root("test", "dev", "unknown")
 	r.SetArgs([]string{"--config", cfgPath, "config", "path"})
 	if err := r.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
