@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/manojpisini/rivu/internal/app"
 	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/service"
 )
 
 // TestE2EHeadless drives the real command tree in-process against an
@@ -51,7 +51,7 @@ func TestE2EHeadless(t *testing.T) {
 	run("scan")
 	run("stats")
 
-	a, err := app.Open()
+	a, err := service.Open()
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

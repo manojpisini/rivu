@@ -1,4 +1,4 @@
-package app
+package service
 
 // SourcePlan lists every side effect a Source run will perform. Preflight
 // (P1.40) builds it before anything is written; execution consumes it;

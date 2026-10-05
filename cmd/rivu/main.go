@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/manojpisini/rivu/internal/app"
 	"github.com/manojpisini/rivu/internal/config"
+	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/tui"
 	"github.com/spf13/cobra"
 	"os"
@@ -20,9 +20,9 @@ func main() {
 		os.Exit(1)
 	}
 }
-func withApp(fn func(*app.App) error) func(*cobra.Command, []string) error {
+func withApp(fn func(*service.App) error) func(*cobra.Command, []string) error {
 	return func(_ *cobra.Command, _ []string) error {
-		a, e := app.Open()
+		a, e := service.Open()
 		if e != nil {
 			return e
 		}
@@ -51,7 +51,7 @@ func root() *cobra.Command {
 		}
 		return nil
 	}
-	r.RunE = withApp(func(a *app.App) error {
+	r.RunE = withApp(func(a *service.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
 			return e
@@ -62,7 +62,7 @@ func root() *cobra.Command {
 	return r
 }
 func tuiCmd() *cobra.Command {
-	return &cobra.Command{Use: "tui", Short: "Launch the terminal interface", RunE: withApp(func(a *app.App) error {
+	return &cobra.Command{Use: "tui", Short: "Launch the terminal interface", RunE: withApp(func(a *service.App) error {
 		if a.Config.Workspace.AutoRescan {
 			_, _ = a.Scan()
 		}
@@ -74,7 +74,7 @@ func tuiCmd() *cobra.Command {
 	})}
 }
 func scanCmd() *cobra.Command {
-	return &cobra.Command{Use: "scan", Short: "Scan workspace and reconcile registry", RunE: withApp(func(a *app.App) error {
+	return &cobra.Command{Use: "scan", Short: "Scan workspace and reconcile registry", RunE: withApp(func(a *service.App) error {
 		ps, e := a.Scan()
 		if e != nil {
 			return e
@@ -96,7 +96,7 @@ func scanCmd() *cobra.Command {
 func sourceCmd() *cobra.Command {
 	var flow string
 	var git, dry, adopt bool
-	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *app.App) error {
+	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *service.App) error {
 		p, e := a.Source(argsName, flow, git, adopt, dry)
 		if e != nil {
 			return e
@@ -123,7 +123,7 @@ var argsName string
 
 func openCmd() *cobra.Command {
 	return &cobra.Command{Use: "open [project]", Args: cobra.MaximumNArgs(1), Short: "Open Current or named project", RunE: func(_ *cobra.Command, args []string) error {
-		a, e := app.Open()
+		a, e := service.Open()
 		if e != nil {
 			return e
 		}
@@ -138,7 +138,7 @@ func openCmd() *cobra.Command {
 func flowCmd() *cobra.Command {
 	var to string
 	var dry, yes, flatten bool
-	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *app.App) error {
+	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *service.App) error {
 		q := ""
 		if len(flowArgs) > 0 {
 			q = flowArgs[0]
@@ -165,7 +165,7 @@ func flowCmd() *cobra.Command {
 var flowArgs []string
 
 func doctorCmd() *cobra.Command {
-	c := &cobra.Command{Use: "doctor [project]", Args: cobra.MaximumNArgs(1), Short: "Run project health checks", RunE: withApp(func(a *app.App) error {
+	c := &cobra.Command{Use: "doctor [project]", Args: cobra.MaximumNArgs(1), Short: "Run project health checks", RunE: withApp(func(a *service.App) error {
 		q := ""
 		if len(docArgs) > 0 {
 			q = docArgs[0]
@@ -194,7 +194,7 @@ var docArgs []string
 
 func mapCmd() *cobra.Command {
 	c := &cobra.Command{Use: "agent", Short: "Agent Map operations"}
-	c.AddCommand(&cobra.Command{Use: "sync [project]", Args: cobra.MaximumNArgs(1), RunE: withApp(func(a *app.App) error {
+	c.AddCommand(&cobra.Command{Use: "sync [project]", Args: cobra.MaximumNArgs(1), RunE: withApp(func(a *service.App) error {
 		q := ""
 		if len(mapArgs) > 0 {
 			q = mapArgs[0]
@@ -212,7 +212,7 @@ func mapCmd() *cobra.Command {
 var mapArgs []string
 
 func listCmd() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"index"}, Short: "List registered projects", RunE: withApp(func(a *app.App) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"index"}, Short: "List registered projects", RunE: withApp(func(a *service.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
 			return e
@@ -224,7 +224,7 @@ func listCmd() *cobra.Command {
 	})}
 }
 func statsCmd() *cobra.Command {
-	return &cobra.Command{Use: "stats", Short: "Show portfolio metrics", RunE: withApp(func(a *app.App) error {
+	return &cobra.Command{Use: "stats", Short: "Show portfolio metrics", RunE: withApp(func(a *service.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
 			return e
@@ -247,7 +247,7 @@ func statsCmd() *cobra.Command {
 	})}
 }
 func dashboardCmd() *cobra.Command {
-	return &cobra.Command{Use: "dashboard", Short: "Print a dashboard snapshot", RunE: withApp(func(a *app.App) error {
+	return &cobra.Command{Use: "dashboard", Short: "Print a dashboard snapshot", RunE: withApp(func(a *service.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
 			return e
