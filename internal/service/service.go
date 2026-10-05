@@ -41,6 +41,7 @@ type Service interface {
 	FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlowResult, error)
 	Map(q string) error
 	OpenProject(q, editor string) error
+	OpenCommand(q, editor string) ([]string, error)
 	Current() (registry.Project, bool)
 }
 
@@ -530,6 +531,34 @@ func (a *App) Map(q string) error {
 	return a.Registry.UpdateFlags(p.ID, true, true)
 }
 
+// OpenCommand resolves q and the editor and returns the argv that
+// `rivu open` would run, without launching anything or touching the
+// registry — the --dry-run preview (E-04).
+func (a *App) OpenCommand(q, editor string) ([]string, error) {
+	p, e := a.Registry.Resolve(q)
+	if e != nil {
+		return nil, e
+	}
+	if _, err := os.Stat(p.Path); err != nil {
+		return nil, fmt.Errorf("%w: %s is not on disk at %s — run `rivu scan` to refresh the registry, or restore the folder", registry.ErrNotFound, p.Slug, p.Path)
+	}
+	_, args, err := a.editorLaunch(p, editor)
+	return args, err
+}
+
+// editorLaunch resolves the editor for p (or takes the override) and
+// returns its name plus the full argv for opening p.
+func (a *App) editorLaunch(p registry.Project, editor string) (string, []string, error) {
+	if editor == "" {
+		editor = editorlaunch.Resolve(a.Config, p.Language)
+	}
+	args, err := editorlaunch.Parse(editor)
+	if err != nil {
+		return "", nil, err
+	}
+	return editor, append(args, p.Path), nil
+}
+
 // OpenProject opens q (or Current when empty) in editor, or the
 // resolved default when editor is "".
 func (a *App) OpenProject(q, editor string) error {
@@ -546,21 +575,18 @@ func (a *App) OpenProject(q, editor string) error {
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.MarkOpened(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "opened")
-	if editor == "" {
-		editor = editorlaunch.Resolve(a.Config, p.Language)
-	}
-	args, err := editorlaunch.Parse(editor)
+	ed, argv, err := a.editorLaunch(p, editor)
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(args[0], append(args[1:], p.Path)...)
+	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// B-05: terminal editors need the TTY — Start() would return while vim
 	// still owns it. GUI editors are fire-and-forget (Start), terminal
 	// editors block until the user exits (Run).
-	if editorlaunch.IsGUI(editor, a.Config.Editors.GUI) {
+	if editorlaunch.IsGUI(ed, a.Config.Editors.GUI) {
 		return cmd.Start()
 	}
 	return cmd.Run()

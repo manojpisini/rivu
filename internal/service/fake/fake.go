@@ -97,6 +97,14 @@ func (f *Service) OpenProject(q, editor string) error {
 	return f.OpenErr
 }
 
+func (f *Service) OpenCommand(q, editor string) ([]string, error) {
+	f.record("OpenCommand " + q)
+	if f.OpenErr != nil {
+		return nil, f.OpenErr
+	}
+	return []string{editor, "path"}, nil
+}
+
 func (f *Service) Current() (registry.Project, bool) {
 	return f.CurrentP, f.HasCurrent
 }
