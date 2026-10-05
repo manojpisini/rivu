@@ -168,6 +168,9 @@ func (a *App) Flow(q, to string, dry bool) (registry.Project, string, error) {
 	if e = a.Registry.UpdatePathFlow(p.ID, dest, p.Channel, to); e != nil {
 		return p, dest, e
 	}
+	if e = a.Registry.UpdateFlags(p.ID, true, p.HasMap); e != nil {
+		return p, dest, e
+	}
 	return p, dest, nil
 }
 func (a *App) Doctor(q string) ([]doctor.Report, error) {
@@ -201,7 +204,10 @@ func (a *App) Map(q string) error {
 	if e = bank.Build(p, "rivu"); e != nil {
 		return e
 	}
-	return mapgen.Build(p)
+	if e = mapgen.Build(p); e != nil {
+		return e
+	}
+	return a.Registry.UpdateFlags(p.ID, true, true)
 }
 func (a *App) OpenProject(q string) error {
 	p, e := a.Registry.Resolve(q)

@@ -76,6 +76,59 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 	}
 }
 
+func TestMapAndFlowSetAssetFlags(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+	a.Config.Automation.CreateBank = false
+	a.Config.Automation.BuildMap = false
+
+	flags := func(t *testing.T, q string) (bank, m bool) {
+		t.Helper()
+		list, err := a.Registry.List()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range list {
+			if p.Slug == q {
+				return p.HasBank, p.HasMap
+			}
+		}
+		t.Fatalf("project %q not found", q)
+		return
+	}
+
+	if _, err := a.Source("demo", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	if b, m := flags(t, "demo"); b || m {
+		t.Errorf("auto-creation off: has_bank=%v has_map=%v", b, m)
+	}
+	if err := a.Map("demo"); err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if b, m := flags(t, "demo"); !b || !m {
+		t.Errorf("after Map: has_bank=%v has_map=%v, want true/true", b, m)
+	}
+
+	if _, err := a.Source("other", "source", false, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	if _, _, err := a.Flow("other", "active", false); err != nil {
+		t.Fatalf("Flow: %v", err)
+	}
+	if b, m := flags(t, "other"); !b || m {
+		t.Errorf("after Flow: has_bank=%v has_map=%v, want true/false", b, m)
+	}
+}
+
 func TestFlowRefreshesBankStage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)

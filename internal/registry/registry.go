@@ -389,6 +389,13 @@ func (r *Registry) SetHealth(id string, score int) error {
 	return err
 }
 
+// UpdateFlags refreshes has_bank/has_map immediately after Bank or Map
+// work (B-06) instead of waiting for the next scan to rediscover them.
+func (r *Registry) UpdateFlags(id string, hasBank, hasMap bool) error {
+	_, err := r.DB.Exec(`UPDATE projects SET has_bank=?,has_map=? WHERE id=?`, b(hasBank), b(hasMap), id)
+	return err
+}
+
 // MarkOpened records that a project was opened just now (R-09).
 func (r *Registry) MarkOpened(id string) error {
 	_, err := r.DB.Exec(`UPDATE projects SET last_opened_at=? WHERE id=?`, time.Now(), id)
