@@ -444,6 +444,12 @@ func (a *App) OpenProject(q string) error {
 	if e != nil {
 		return e
 	}
+	// E-03: never open a vanished path — flag it missing and point at scan
+	// instead of launching an editor at nothing.
+	if _, err := os.Stat(p.Path); err != nil {
+		_ = a.Registry.MarkMissing(p.ID)
+		return fmt.Errorf("%w: %s is not on disk at %s — run `rivu scan` to refresh the registry, or restore the folder", registry.ErrNotFound, p.Slug, p.Path)
+	}
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.MarkOpened(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "opened")

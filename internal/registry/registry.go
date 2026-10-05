@@ -433,6 +433,13 @@ func (r *Registry) MarkOpened(id string) error {
 	return err
 }
 
+// MarkMissing flags one project as absent from disk, so lists show the
+// missing mismatch until the next scan finds it again (E-03).
+func (r *Registry) MarkMissing(id string) error {
+	_, err := r.DB.Exec(`UPDATE projects SET on_disk=0 WHERE id=?`, id)
+	return err
+}
+
 // LogActivity appends an event to activity_log (R-08). Events are short
 // vocabulary words: opened, sourced, flowed, health, map.
 func (r *Registry) LogActivity(projectID, event string) error {

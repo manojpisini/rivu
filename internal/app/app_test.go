@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -617,5 +618,77 @@ func TestScanRejectsInvalidConfig(t *testing.T) {
 	}
 	if _, err := Open(); err == nil {
 		t.Fatal("Open accepted max_depth = 0, want error")
+	}
+}
+
+func openTestApp(t *testing.T) *App {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { a.Close() })
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+	return a
+}
+
+func TestOpenProjectRefusesMissingPath(t *testing.T) {
+	a := openTestApp(t)
+	p, err := a.Source("vanish", "source", false, false, false)
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	if err := os.RemoveAll(p.Path); err != nil {
+		t.Fatal(err)
+	}
+
+	err = a.OpenProject("vanish")
+	if err == nil {
+		t.Fatal("OpenProject on a vanished path must refuse")
+	}
+	if !errors.Is(err, registry.ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "rivu scan") {
+		t.Errorf("error must offer rivu scan: %v", err)
+	}
+	got, rerr := a.Registry.Resolve("vanish")
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if got.OnDisk {
+		t.Error("vanished project must be flagged on_disk=0")
+	}
+	if !got.LastOpenedAt.IsZero() {
+		t.Error("refused open must not record last_opened_at")
+	}
+}
+
+func TestOpenProjectOpensOnDisk(t *testing.T) {
+	a := openTestApp(t)
+	if runtime.GOOS == "windows" {
+		a.Config.Editors.Default = "cmd /c exit 0"
+	} else {
+		a.Config.Editors.Default = "true"
+	}
+	p, err := a.Source("handy", "source", false, false, false)
+	if err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	if err := a.OpenProject("handy"); err != nil {
+		t.Fatalf("OpenProject: %v", err)
+	}
+	got, err := a.Registry.Resolve("handy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastOpenedAt.IsZero() {
+		t.Error("open must record last_opened_at")
+	}
+	if !got.OnDisk || got.ID != p.ID {
+		t.Errorf("project state after open: %+v", got)
 	}
 }
