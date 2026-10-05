@@ -12,7 +12,7 @@ import (
 
 func deltaCmd() *cobra.Command {
 	var dry, yes bool
-	c := &cobra.Command{Use: "delta [project]", Aliases: []string{"archive"}, Args: cobra.MaximumNArgs(1), Short: "Archive a project to the Delta stage", RunE: withApp(func(a *service.App, args []string) error {
+	c := &cobra.Command{Use: "delta [project]", Aliases: []string{"archive"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to the Delta stage", RunE: withApp(func(a *service.App, args []string) error {
 		q := ""
 		if len(args) > 0 {
 			q = args[0]

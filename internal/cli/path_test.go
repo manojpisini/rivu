@@ -9,6 +9,8 @@ import (
 )
 
 // captureStdout returns everything fn writes to the process stdout.
+// The pipe is drained concurrently: output larger than the 64 KB pipe
+// buffer would otherwise deadlock (cobra's bash completion is that big).
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -18,15 +20,16 @@ func captureStdout(t *testing.T, fn func()) string {
 	old := os.Stdout
 	os.Stdout = w
 	defer func() { os.Stdout = old }()
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
 	fn()
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(out)
+	return <-done
 }
 
 // captureStderr returns everything fn writes to the process stderr.
@@ -39,15 +42,16 @@ func captureStderr(t *testing.T, fn func()) string {
 	old := os.Stderr
 	os.Stderr = w
 	defer func() { os.Stderr = old }()
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
 	fn()
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(out)
+	return <-done
 }
 
 func TestPathCommand(t *testing.T) {
