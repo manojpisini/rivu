@@ -25,6 +25,8 @@ type Service struct {
 	FlowErr     error
 	MapErr      error
 	MapStatuses []service.MapStatus
+	StatsRes    service.Stats
+	StatsErr    error
 	OpenErr     error
 	CurrentP    registry.Project
 	HasCurrent  bool
@@ -53,6 +55,10 @@ func (f *Service) record(s string) {
 
 func (f *Service) List(service.Filter) ([]registry.Project, error) {
 	return f.Projects, nil
+}
+
+func (f *Service) Stats(days int) (service.Stats, error) {
+	return f.StatsRes, f.StatsErr
 }
 
 func (f *Service) Scan() (service.ScanResult, error) {

@@ -34,6 +34,7 @@ type App struct {
 // hand-written fake in internal/service/fake.
 type Service interface {
 	List(f Filter) ([]registry.Project, error)
+	Stats(days int) (Stats, error)
 	Scan() (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name string, o SourceOpts) (SourceResult, error)
