@@ -43,7 +43,7 @@ editor afterwards, honouring --editor.`,
 				return e
 			}
 			if dry {
-				fmt.Printf("DRY RUN: create %s at %s\n", sr.Project.Name, sr.Project.Path)
+				printSourcePlan(os.Stdout, sr.Plan)
 			} else {
 				fmt.Printf("Sourced %s [%s] at %s\n", sr.Project.Name, sr.Project.FlowStage, sr.Project.Path)
 			}

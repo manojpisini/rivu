@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/spf13/cobra"
@@ -31,7 +32,11 @@ func flowCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		fmt.Println(fr.Note)
+		if dry {
+			printFlowPlan(os.Stdout, fr)
+		} else {
+			fmt.Println(fr.Note)
+		}
 		return nil
 	})}
 	c.Flags().StringVar(&to, "to", "", "Target: source|active|maintenance|research|delta")

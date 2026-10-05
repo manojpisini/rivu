@@ -33,9 +33,13 @@ func deltaCmd() *cobra.Command {
 }
 
 // printDelta renders delta's own copy: the shared Plan preview for
-// dry-run and no-ops, delta wording for a real move.
+// dry-run, the note for no-ops, delta wording for a real move.
 func printDelta(out io.Writer, dry bool, fr service.FlowResult) {
-	if dry || strings.Contains(fr.Note, "already") {
+	if dry {
+		printFlowPlan(out, fr)
+		return
+	}
+	if strings.Contains(fr.Note, "already") {
 		fmt.Fprintln(out, fr.Note)
 		return
 	}
