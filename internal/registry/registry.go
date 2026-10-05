@@ -18,6 +18,7 @@ import (
 type Project struct {
 	ID, Name, Slug, Path, Channel, FlowStage, Language string
 	Stack                                              []string
+	Root                                               string
 	HasGit, HasBank, HasMap                            bool
 	HealthScore                                        int
 	CreatedAt, LastOpenedAt, LastScannedAt             time.Time
@@ -58,6 +59,9 @@ CREATE TABLE IF NOT EXISTS activity_log(id TEXT PRIMARY KEY,project_id TEXT,even
 	`CREATE INDEX IF NOT EXISTS idx_projects_flow_stage ON projects(flow_stage);
 CREATE INDEX IF NOT EXISTS idx_projects_last_opened ON projects(last_opened_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_project_taken ON health_snapshots(project_id,taken_at);`,
+
+	// v3 — workspace root each project was discovered under (S-08).
+	`ALTER TABLE projects ADD COLUMN root TEXT NOT NULL DEFAULT '';`,
 }
 
 func (r *Registry) migrate() error {
@@ -136,8 +140,8 @@ var pathMatchClause = func() string {
 }()
 
 var (
-	updateDiscoverySQL = `UPDATE projects SET channel=?,language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,on_disk=1 WHERE ` + pathMatchClause
-	insertProjectSQL   = `INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	updateDiscoverySQL = `UPDATE projects SET channel=?,language=?,stack=?,has_git=?,has_bank=?,has_map=?,last_scanned_at=?,root=?,on_disk=1 WHERE ` + pathMatchClause
+	insertProjectSQL   = `INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered,root) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	markMissingSQL     = `UPDATE projects SET on_disk=0 WHERE on_disk=1`
 )
 
@@ -188,14 +192,14 @@ func discoverTx(tx *sql.Tx, upd, ins *sql.Stmt, p Project) error {
 		return err
 	}
 	st, _ := json.Marshal(p.Stack)
-	_, err = ins.Exec(p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
+	_, err = ins.Exec(p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered), p.Root)
 	return err
 }
 
 // discoveryUpdateArgs builds the arguments for updateDiscoverySQL.
 func discoveryUpdateArgs(p Project) []any {
 	st, _ := json.Marshal(p.Stack)
-	return []any{p.Channel, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, canonical(p.Path)}
+	return []any{p.Channel, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.LastScannedAt, p.Root, canonical(p.Path)}
 }
 
 func updatedDiscovery(res sql.Result, err error) (bool, error) {
@@ -236,7 +240,7 @@ func (r *Registry) Upsert(p Project) error {
 	}
 
 	st, _ := json.Marshal(p.Stack)
-	_, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered))
+	_, err = tx.Exec(`INSERT INTO projects(id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered,root) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET name=excluded.name,channel=excluded.channel,flow_stage=excluded.flow_stage,language=excluded.language,stack=excluded.stack,has_git=excluded.has_git,has_bank=excluded.has_bank,has_map=excluded.has_map,last_scanned_at=excluded.last_scanned_at,on_disk=1,registered=1,root=excluded.root`, p.ID, p.Name, p.Slug, p.Path, p.Channel, p.FlowStage, p.Language, string(st), b(p.HasGit), b(p.HasBank), b(p.HasMap), p.HealthScore, p.CreatedAt, p.LastOpenedAt, p.LastScannedAt, b(p.OnDisk), b(p.Registered), p.Root)
 	if err != nil {
 		return err
 	}
@@ -267,7 +271,7 @@ func scanProject(s interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var st string
 	var hg, hb, hm, od, reg int
-	err := s.Scan(&p.ID, &p.Name, &p.Slug, &p.Path, &p.Channel, &p.FlowStage, &p.Language, &st, &hg, &hb, &hm, &p.HealthScore, &p.CreatedAt, &p.LastOpenedAt, &p.LastScannedAt, &od, &reg)
+	err := s.Scan(&p.ID, &p.Name, &p.Slug, &p.Path, &p.Channel, &p.FlowStage, &p.Language, &st, &hg, &hb, &hm, &p.HealthScore, &p.CreatedAt, &p.LastOpenedAt, &p.LastScannedAt, &od, &reg, &p.Root)
 	if err != nil {
 		return p, err
 	}
@@ -280,7 +284,7 @@ func scanProject(s interface{ Scan(...any) error }) (Project, error) {
 	return p, nil
 }
 
-const cols = `id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered`
+const cols = `id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered,root`
 
 func (r *Registry) List() ([]Project, error) {
 	// Lifecycle order: source, active, maintenance, research, delta (spec 1.2.1).

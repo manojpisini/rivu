@@ -213,7 +213,7 @@ func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 					id = uuid.NewString()
 				}
 				now := time.Now()
-				out = append(out, registry.Project{ID: id, Name: d.Name(), Slug: sl, Path: path, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
+				out = append(out, registry.Project{ID: id, Name: name, Slug: sl, Path: path, Root: root, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
 				return filepath.SkipDir
 			}
 		}

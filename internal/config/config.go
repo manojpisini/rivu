@@ -218,6 +218,9 @@ func Load() (Config, []string, error) {
 		warnings = append(warnings, fmt.Sprintf("unknown config key %q in %s — fix the typo or remove it", key, p))
 	}
 	c.Workspace.Root = expand(c.Workspace.Root)
+	for i, r := range c.Workspace.SecondaryRoots {
+		c.Workspace.SecondaryRoots[i] = expand(r)
+	}
 	c.Data.DBPath = expand(c.Data.DBPath)
 	return c, warnings, nil
 }

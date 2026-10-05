@@ -51,22 +51,31 @@ func (a *App) Scan() ([]registry.Project, error) {
 		return nil, e
 	}
 	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
-	ps, scanWarns, e := s.Scan(a.Config.Workspace.Root)
-	if e != nil {
-		return nil, e
-	}
-	warns, e := a.Registry.ApplyDiscovery(ps)
+	var all []registry.Project
 	a.ScanWarnings = nil
-	for _, w := range scanWarns {
-		a.ScanWarnings = append(a.ScanWarnings, w.Error())
+	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
+	for i, root := range roots {
+		ps, scanWarns, e := s.Scan(root)
+		for _, w := range scanWarns {
+			a.ScanWarnings = append(a.ScanWarnings, w.Error())
+		}
+		if e != nil {
+			if i == 0 {
+				return nil, e
+			}
+			a.ScanWarnings = append(a.ScanWarnings, fmt.Sprintf("secondary root skipped: %v", e))
+			continue
+		}
+		all = append(all, ps...)
 	}
+	warns, e := a.Registry.ApplyDiscovery(all)
 	for _, w := range warns {
 		a.ScanWarnings = append(a.ScanWarnings, w.Error())
 	}
 	if e != nil {
 		return nil, fmt.Errorf("scan could not be committed: %w", e)
 	}
-	return ps, nil
+	return all, nil
 }
 func channel(flow string) string { return registry.ChannelForFlow(flow) }
 func validFlow(s string) bool {

@@ -96,6 +96,39 @@ func TestUpsertFoldsEquivalentPaths(t *testing.T) {
 	}
 }
 
+func TestDiscoveryStoresRoot(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	dir := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	scanned := Project{ID: "id-r", Name: "proj", Slug: "proj", Path: dir, Channel: "00_Source", FlowStage: "source", Root: filepath.FromSlash("/ws1"), LastScannedAt: time.Now(), OnDisk: true}
+	if warns, err := r.ApplyDiscovery([]Project{scanned}); err != nil || len(warns) != 0 {
+		t.Fatalf("insert: warns=%v err=%v", warns, err)
+	}
+	got, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Root != filepath.FromSlash("/ws1") {
+		t.Fatalf("root not stored on insert: %+v", got)
+	}
+	// Rescan under a different root refreshes it (discovery-owned field).
+	scanned.Root = filepath.FromSlash("/ws2")
+	scanned.LastScannedAt = time.Now().Add(time.Second)
+	if warns, err := r.ApplyDiscovery([]Project{scanned}); err != nil || len(warns) != 0 {
+		t.Fatalf("update: warns=%v err=%v", warns, err)
+	}
+	if got, err = r.List(); err != nil || len(got) != 1 || got[0].Root != filepath.FromSlash("/ws2") {
+		t.Fatalf("root not refreshed on update: %+v err=%v", got, err)
+	}
+}
+
 func TestDiscoverNeverTouchesRegistryOwnedFields(t *testing.T) {
 	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
 	if err != nil {

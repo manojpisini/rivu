@@ -23,6 +23,9 @@ func TestScanDetectsGoProject(t *testing.T) {
 	if len(got) != 1 || got[0].FlowStage != "active" || got[0].Language != "Go" {
 		t.Fatalf("unexpected: %#v", got)
 	}
+	if got[0].Root != filepath.Clean(root) {
+		t.Errorf("Root = %q, want %q", got[0].Root, filepath.Clean(root))
+	}
 }
 
 func TestClassifyMarkers(t *testing.T) {
