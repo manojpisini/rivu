@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,54 @@ func TestScanDetectsGoProject(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].FlowStage != "active" || got[0].Language != "Go" {
 		t.Fatalf("unexpected: %#v", got)
+	}
+}
+
+func TestClassifyMarkers(t *testing.T) {
+	for _, tc := range []struct {
+		files  []string
+		lang   string
+		stack  string
+		strong bool
+	}{
+		{[]string{"go.mod"}, "Go", "go", true},
+		{[]string{"Cargo.toml"}, "Rust", "rust", true},
+		{[]string{"requirements.txt"}, "Python", "python", true},
+		{[]string{"setup.py"}, "Python", "python", true},
+		{[]string{"package.json"}, "JavaScript/TypeScript", "node", true},
+		{[]string{"deno.json"}, "JavaScript/TypeScript", "deno", true},
+		{[]string{"pom.xml"}, "Java", "java", true},
+		{[]string{"build.gradle"}, "Java", "gradle", true},
+		{[]string{"build.gradle.kts"}, "Kotlin", "gradle", true},
+		{[]string{"App.sln"}, "C#", "dotnet", true},
+		{[]string{"App.csproj"}, "C#", "dotnet", true},
+		{[]string{"Gemfile"}, "Ruby", "ruby", true},
+		{[]string{"composer.json"}, "PHP", "php", true},
+		{[]string{"mix.exs"}, "Elixir", "elixir", true},
+		{[]string{"CMakeLists.txt"}, "C/C++", "cmake", true},
+		{[]string{"Package.swift"}, "Swift", "swift", true},
+		{[]string{"Dockerfile"}, "", "docker", false},
+		{[]string{".git"}, "", "", true},
+		{[]string{"notes.txt"}, "", "", false},
+		{[]string{"go.mod", "Dockerfile"}, "Go", "go,docker", true},
+	} {
+		name := tc.files[0]
+		t.Run(name, func(t *testing.T) {
+			d := t.TempDir()
+			for _, f := range tc.files {
+				p := filepath.Join(d, f)
+				if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, nil, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lang, stack, strong := classify(d)
+			if lang != tc.lang || strong != tc.strong || strings.Join(stack, ",") != tc.stack {
+				t.Errorf("classify = (%q, %v, %v), want (%q, %v, %v)", lang, stack, strong, tc.lang, tc.stack, tc.strong)
+			}
+		})
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,41 +46,67 @@ func bankID(path string) string {
 	}
 	return f.Rivu.ID
 }
+
+// marker is one detection rule: a file (or "*.<ext>" glob) in the project
+// root that signals an ecosystem. First marker with a language wins for
+// lang; stack tokens are deduplicated; strong markers make a directory a
+// project on their own.
+type marker struct {
+	name   string
+	lang   string
+	stack  string
+	strong bool
+}
+
+var markers = []marker{
+	{"go.mod", "Go", "go", true},
+	{"Cargo.toml", "Rust", "rust", true},
+	{"pyproject.toml", "Python", "python", true},
+	{"requirements.txt", "Python", "python", true},
+	{"setup.py", "Python", "python", true},
+	{"package.json", "JavaScript/TypeScript", "node", true},
+	{"deno.json", "JavaScript/TypeScript", "deno", true},
+	{"pom.xml", "Java", "java", true},
+	{"build.gradle", "Java", "gradle", true},
+	{"build.gradle.kts", "Kotlin", "gradle", true},
+	{"*.sln", "C#", "dotnet", true},
+	{"*.csproj", "C#", "dotnet", true},
+	{"Gemfile", "Ruby", "ruby", true},
+	{"composer.json", "PHP", "php", true},
+	{"mix.exs", "Elixir", "elixir", true},
+	{"CMakeLists.txt", "C/C++", "cmake", true},
+	{"Package.swift", "Swift", "swift", true},
+	{"Dockerfile", "", "docker", false},
+	{"bun.lockb", "", "bun", false},
+	{"pnpm-lock.yaml", "", "pnpm", false},
+}
+
+func markerPresent(root, name string) bool {
+	if strings.HasPrefix(name, "*.") {
+		matches, err := filepath.Glob(filepath.Join(root, name))
+		return err == nil && len(matches) > 0
+	}
+	return exists(filepath.Join(root, name))
+}
+
 func classify(path string) (string, []string, bool) {
 	var lang string
 	var stack []string
-	strong := false
-	if exists(filepath.Join(path, "go.mod")) {
-		lang = "Go"
-		stack = append(stack, "go")
-		strong = true
-	}
-	if exists(filepath.Join(path, "Cargo.toml")) {
-		if lang == "" {
-			lang = "Rust"
+	strong := exists(filepath.Join(path, ".git")) ||
+		exists(filepath.Join(path, ".metadata", "project.toml"))
+	for _, m := range markers {
+		if !markerPresent(path, m.name) {
+			continue
 		}
-		stack = append(stack, "rust")
-		strong = true
-	}
-	if exists(filepath.Join(path, "pyproject.toml")) {
-		if lang == "" {
-			lang = "Python"
+		if lang == "" && m.lang != "" {
+			lang = m.lang
 		}
-		stack = append(stack, "python")
-		strong = true
-	}
-	if exists(filepath.Join(path, "package.json")) {
-		if lang == "" {
-			lang = "JavaScript/TypeScript"
+		if m.stack != "" && !slices.Contains(stack, m.stack) {
+			stack = append(stack, m.stack)
 		}
-		stack = append(stack, "node")
-		strong = true
-	}
-	if exists(filepath.Join(path, ".git")) {
-		strong = true
-	}
-	if exists(filepath.Join(path, ".metadata", "project.toml")) {
-		strong = true
+		if m.strong {
+			strong = true
+		}
 	}
 	return lang, stack, strong
 }
