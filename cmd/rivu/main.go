@@ -12,7 +12,5 @@ var commit = "dev"
 var date = "unknown"
 
 func main() {
-	if err := cli.Root(version, commit, date).Execute(); err != nil {
-		os.Exit(1)
-	}
+	os.Exit(cli.Run(version, commit, date, os.Args[1:]))
 }

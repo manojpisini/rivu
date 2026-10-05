@@ -14,11 +14,28 @@ import (
 // Root assembles the full command tree. version/commit/date come from
 // main, where the ldflags targets live.
 func Root(version, commit, date string) *cobra.Command {
+	return newRoot(version, commit, date, new(bool))
+}
+
+// Run executes the command tree with args and returns the process exit
+// code (X-03: 0 ok, 1 error, 2 usage, 3 not found, 4 needs --yes,
+// 5 warnings).
+func Run(version, commit, date string, args []string) int {
+	ran := new(bool)
+	r := newRoot(version, commit, date, ran)
+	r.SetArgs(args)
+	return ExitCode(r.Execute(), *ran)
+}
+
+func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	r := &cobra.Command{Use: "rivu", Short: "Your project filesystem, mapped and flowing", Version: fmt.Sprintf("%s (%s, %s)", version, commit, date), SilenceUsage: true}
 	var home, cfgFile string
 	r.PersistentFlags().StringVar(&home, "home", "", "set Rivu home directory (overrides RIVU_HOME)")
 	r.PersistentFlags().StringVar(&cfgFile, "config", "", "set config file path (overrides RIVU_CONFIG)")
 	r.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		// Marks that validation passed: failures before this point are
+		// usage errors (exit 2), after it they are real errors (exit 1+).
+		*ran = true
 		if home != "" {
 			if err := os.Setenv("RIVU_HOME", home); err != nil {
 				return fmt.Errorf("apply --home: %w", err)
@@ -51,6 +68,12 @@ func withApp(fn func(*service.App, []string) error) func(*cobra.Command, []strin
 		for _, w := range a.ConfigWarnings {
 			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
-		return fn(a, args)
+		if err := fn(a, args); err != nil {
+			return err
+		}
+		if n := len(a.ConfigWarnings); n > 0 {
+			return fmt.Errorf("%w: %d config warning(s)", ErrWarnings, n)
+		}
+		return nil
 	}
 }

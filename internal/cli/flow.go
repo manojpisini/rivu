@@ -16,7 +16,7 @@ func flowCmd() *cobra.Command {
 			q = args[0]
 		}
 		if !dry && !yes {
-			return fmt.Errorf("flow changes require --yes (or use --dry-run)")
+			return fmt.Errorf("flow changes require --yes (or use --dry-run): %w", ErrNeedsConfirm)
 		}
 		fr, e := a.Flow(q, to, flatten, dry)
 		if e != nil {

@@ -25,6 +25,9 @@ func scanCmd() *cobra.Command {
 			fmt.Printf("Attention: %d missing, %d unregistered, %d stage-mismatch\n", len(st.Missing), len(st.Unregistered), len(st.StageMismatch))
 		}
 		fmt.Printf("Mapped %d project(s) from %s\n", len(res.Projects), a.Config.Workspace.Root)
+		if n := len(res.Warnings); n > 0 {
+			return fmt.Errorf("%w: %d scan warning(s)", ErrWarnings, n)
+		}
 		return nil
 	})}
 }
