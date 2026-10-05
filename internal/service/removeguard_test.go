@@ -11,9 +11,9 @@ import (
 
 // TestRemovalOnlyAllowListed enforces safety rule 1: nothing in non-test
 // code may call os.Remove/RemoveAll without a `rivu-allow-remove` sentinel
-// naming what the call is allowed to delete (currently only rollbackSource
-// and config.Save's own temp file). Test files are exempt: they only delete
-// their own TempDir fixtures.
+// naming what the call is allowed to delete (currently only rollbackSource,
+// config.Save's own temp file, and logx's oldest rotated generation). Test
+// files are exempt: they only delete their own TempDir fixtures.
 func TestRemovalOnlyAllowListed(t *testing.T) {
 	root := "../.."
 	var offenders []string

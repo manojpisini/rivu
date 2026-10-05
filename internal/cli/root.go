@@ -5,11 +5,14 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manojpisini/rivu/internal/config"
+	"github.com/manojpisini/rivu/internal/logx"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
@@ -27,11 +30,35 @@ func Root(version, commit, date string) *cobra.Command {
 // code (X-03: 0 ok, 1 error, 2 usage, 3 not found, 4 needs --yes,
 // 5 warnings).
 func Run(version, commit, date string, args []string) int {
+	defer setupLog(args)()
 	ran := new(bool)
 	v, c, d := buildInfo(version, commit, date)
 	r := newRoot(v, c, d, ran)
 	r.SetArgs(args)
 	return ExitCode(r.Execute(), *ran)
+}
+
+// setupLog points slog at the rotating JSON file under the Rivu home
+// (P2.27) and returns a closer Run defers — Windows refuses to delete
+// open files, so tests cannot clean up otherwise. Best effort: a
+// broken log dir warns on stderr and the run continues without file
+// logging. -v/--verbose is peeked from raw args because cobra has not
+// parsed yet; slugs cannot start with a dash, so no positional can be
+// mistaken for the flag.
+func setupLog(args []string) func() {
+	nop := func() {}
+	dir, err := config.Dir()
+	if err != nil {
+		warnf("rivu home: %v", err)
+		return nop
+	}
+	l, f, err := logx.Open(dir, slices.Contains(args, "-v") || slices.Contains(args, "--verbose"))
+	if err != nil {
+		warnf("log file: %v", err)
+		return nop
+	}
+	slog.SetDefault(l)
+	return func() { f.Close() }
 }
 
 func newRoot(version, commit, date string, ran *bool) *cobra.Command {
@@ -47,10 +74,11 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	r.PersistentFlags().BoolVarP(quiet, "quiet", "q", false, "suppress warning notes on stderr (exit codes still report them)")
 	r.PersistentFlags().BoolP("yes", "y", false, "skip confirmation prompts (Plan → confirm → Apply)")
 	r.PersistentFlags().Bool("dry-run", false, "preview changes without writing")
-	r.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+	r.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		// Marks that validation passed: failures before this point are
 		// usage errors (exit 2), after it they are real errors (exit 1+).
 		*ran = true
+		slog.Info("command", "path", cmd.CommandPath(), "args", args)
 		if home != "" {
 			if err := os.Setenv("RIVU_HOME", home); err != nil {
 				return fmt.Errorf("apply --home: %w", err)
