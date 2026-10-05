@@ -98,16 +98,22 @@ func printListText(w io.Writer, ps []registry.Project) {
 func printListJSON(w io.Writer, ps []registry.Project) error {
 	out := listJSON{Schema: 1, Projects: make([]projectJSON, 0, len(ps))}
 	for _, p := range ps {
-		out.Projects = append(out.Projects, projectJSON{
-			ID: p.ID, Name: p.Name, Slug: p.Slug, Path: p.Path,
-			Channel: p.Channel, FlowStage: p.FlowStage, Language: p.Language,
-			Stack: p.Stack, HealthScore: p.HealthScore,
-			HasGit: p.HasGit, HasBank: p.HasBank, HasMap: p.HasMap,
-			CreatedAt:    rfc3339(p.CreatedAt),
-			LastOpenedAt: rfc3339(p.LastOpenedAt),
-		})
+		out.Projects = append(out.Projects, projectToJSON(p))
 	}
 	return json.NewEncoder(w).Encode(out)
+}
+
+// projectToJSON converts a registry project to the shared JSON shape
+// used by list --json and scan --json.
+func projectToJSON(p registry.Project) projectJSON {
+	return projectJSON{
+		ID: p.ID, Name: p.Name, Slug: p.Slug, Path: p.Path,
+		Channel: p.Channel, FlowStage: p.FlowStage, Language: p.Language,
+		Stack: p.Stack, HealthScore: p.HealthScore,
+		HasGit: p.HasGit, HasBank: p.HasBank, HasMap: p.HasMap,
+		CreatedAt:    rfc3339(p.CreatedAt),
+		LastOpenedAt: rfc3339(p.LastOpenedAt),
+	}
 }
 
 func rfc3339(t time.Time) string {
