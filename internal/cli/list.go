@@ -40,9 +40,8 @@ func listCmd() *cobra.Command {
 	var flow, lang, confluence, sortKey string
 	var unhealthy, stale, asJSON bool
 	c := &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"index"},
-		Short:   "List registered projects",
+		Use:   "list",
+		Short: "List registered projects",
 		Long: `List registered projects with optional filters.
 
 Filters combine with AND: --flow active --lang go keeps active Go projects.

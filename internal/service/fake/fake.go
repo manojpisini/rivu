@@ -28,6 +28,7 @@ type Service struct {
 	StatsRes    service.Stats
 	StatsErr    error
 	DashRes     service.Dashboard
+	IndexRes    service.IndexResult
 	OpenErr     error
 	CurrentP    registry.Project
 	HasCurrent  bool
@@ -64,6 +65,11 @@ func (f *Service) Stats(days int) (service.Stats, error) {
 
 func (f *Service) Dashboard() (service.Dashboard, error) {
 	return f.DashRes, f.StatsErr
+}
+
+func (f *Service) Index() (service.IndexResult, error) {
+	f.record("Index")
+	return f.IndexRes, f.ScanErr
 }
 
 func (f *Service) Scan() (service.ScanResult, error) {

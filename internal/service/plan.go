@@ -82,3 +82,19 @@ type BulkMapResult struct {
 	Done   []registry.Project
 	Failed []Failure
 }
+
+// Reconcile is one stage mismatch the index fixed: the folder's
+// channel won, so flow_stage (and project.toml) followed it.
+type Reconcile struct {
+	Slug string
+	From string
+	To   string
+}
+
+// IndexResult is the rebuild report (P2.23): the scan outcome plus
+// every stage mismatch reconciled, in order.
+type IndexResult struct {
+	Scan       ScanResult
+	Reconciled []Reconcile
+	Failures   []Failure
+}

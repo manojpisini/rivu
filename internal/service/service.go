@@ -36,6 +36,7 @@ type Service interface {
 	List(f Filter) ([]registry.Project, error)
 	Stats(days int) (Stats, error)
 	Dashboard() (Dashboard, error)
+	Index() (IndexResult, error)
 	Scan() (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name string, o SourceOpts) (SourceResult, error)
@@ -108,6 +109,38 @@ func (a *App) Scan() (ScanResult, error) {
 		return ScanResult{}, fmt.Errorf("scan could not be committed: %w", e)
 	}
 	return ScanResult{Projects: all, Warnings: warnings}, nil
+}
+
+// Index rebuilds the registry index from disk (spec 2.9): a full
+// rescan, then every stage mismatch is reconciled so flow_stage
+// matches the channel folder the project actually sits in, with
+// project.toml following. Unregistered folders stay for source/adopt
+// and missing folders stay reported — index never adopts or removes.
+func (a *App) Index() (IndexResult, error) {
+	scanRes, err := a.Scan()
+	if err != nil {
+		return IndexResult{}, err
+	}
+	st, err := a.Registry.States()
+	if err != nil {
+		return IndexResult{}, err
+	}
+	out := IndexResult{Scan: scanRes}
+	for _, p := range st.StageMismatch {
+		from := p.FlowStage
+		to := registry.FlowForChannel(p.Channel)
+		if err := a.Registry.UpdatePathFlow(p.ID, p.Path, p.Channel, to); err != nil {
+			out.Failures = append(out.Failures, Failure{Query: p.Slug, Err: err})
+			continue
+		}
+		p.FlowStage = to
+		if err := bank.Sync(p, "rivu"); err != nil {
+			out.Failures = append(out.Failures, Failure{Query: p.Slug, Err: err})
+			continue
+		}
+		out.Reconciled = append(out.Reconciled, Reconcile{Slug: p.Slug, From: from, To: to})
+	}
+	return out, nil
 }
 func channel(flow string) string { return registry.ChannelForFlow(flow) }
 
