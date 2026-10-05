@@ -105,7 +105,7 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 
 	// Bridge owns init: --git is auto-corrected away with a warning.
 	a.Config.Bridge.Enabled = true
-	if _, err := a.Source("bridged", "source", true, false); err != nil {
+	if _, err := a.Source("bridged", "source", true, false, false); err != nil {
 		t.Fatalf("Source with bridge: %v", err)
 	}
 	if len(a.SourceWarnings) != 1 || !strings.Contains(a.SourceWarnings[0], "bridge owns git init") {
@@ -120,7 +120,7 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 
 	// Bridge off, git requested: rivu inits and records itself.
 	a.Config.Bridge.Enabled = false
-	if _, err := a.Source("selfinit", "source", true, false); err != nil {
+	if _, err := a.Source("selfinit", "source", true, false, false); err != nil {
 		t.Fatalf("Source with git: %v", err)
 	}
 	if len(a.SourceWarnings) != 0 {
@@ -134,7 +134,7 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 	}
 
 	// Nobody inits: recorded as none, not rivu (O-02).
-	if _, err := a.Source("noinit", "source", false, false); err != nil {
+	if _, err := a.Source("noinit", "source", false, false, false); err != nil {
 		t.Fatalf("Source without git: %v", err)
 	}
 	if got := owner(t, "noinit"); got != "none" {
@@ -156,7 +156,7 @@ func TestSourceGitBranchAndGitignore(t *testing.T) {
 	a.Config.Git.DefaultBranch = "trunk"
 	a.Config.Templates.Default = "go-cli"
 
-	if _, err := a.Source("branched", "source", true, false); err != nil {
+	if _, err := a.Source("branched", "source", true, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	dir := filepath.Join(a.Config.Workspace.Root, "00_Source", "branched")
@@ -173,6 +173,70 @@ func TestSourceGitBranchAndGitignore(t *testing.T) {
 	}
 	if !strings.Contains(string(gi), ".env") {
 		t.Errorf(".gitignore missing starter entries: %q", gi)
+	}
+}
+
+func TestSourceAdoptExistingDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+
+	// Pre-existing non-empty directory with user content and its own Bank.
+	dir := filepath.Join(a.Config.Workspace.Root, "00_Source", "legacy")
+	if err := os.MkdirAll(filepath.Join(dir, ".metadata"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("mine"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	customTOML := "[rivu]\nname = \"legacy\"\ncreated_at = 2020-01-01T00:00:00Z\ngit_init_owner = \"me\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".metadata", "project.toml"), []byte(customTOML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without --adopt it is refused before any write.
+	if _, err := a.Source("legacy", "source", true, false, false); err == nil {
+		t.Fatal("expected non-empty dir refusal")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".metadata", "agent")); !os.IsNotExist(err) {
+		t.Error("refused Source must not write files")
+	}
+
+	// With --adopt: registered, Bank kept as-is, no git, no Map, README untouched.
+	p, err := a.Source("legacy", "source", true, true, false)
+	if err != nil {
+		t.Fatalf("adopt Source: %v", err)
+	}
+	got, err := a.Registry.Resolve("legacy")
+	if err != nil || got.Path == "" {
+		t.Fatalf("registry row missing: %v", err)
+	}
+	readme, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil || string(readme) != "mine" {
+		t.Errorf("README changed: %q %v", readme, err)
+	}
+	tomlAfter, err := os.ReadFile(filepath.Join(dir, ".metadata", "project.toml"))
+	if err != nil || string(tomlAfter) != customTOML {
+		t.Errorf("project.toml rewritten by adopt:\n%s", tomlAfter)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
+		t.Error("adopt ran git init")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".metadata", "agent", "PROJECT_MAP.md")); !os.IsNotExist(err) {
+		t.Error("adopt built the Map")
+	}
+	if p.HasGit || p.HasMap {
+		t.Errorf("flags = git:%v map:%v, want both false", p.HasGit, p.HasMap)
+	}
+	if len(a.SourceWarnings) != 1 || !strings.Contains(a.SourceWarnings[0], "skipped git init") {
+		t.Errorf("warnings = %v, want skipped-git-init warning", a.SourceWarnings)
 	}
 }
 
@@ -202,11 +266,11 @@ func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("demo", "source", false, false); err != nil {
+	if _, err := a.Source("demo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	// Slug/path collision: rejected before any write.
-	if _, err := a.Source("demo", "source", false, false); err == nil {
+	if _, err := a.Source("demo", "source", false, false, false); err == nil {
 		t.Error("duplicate slug accepted")
 	}
 	// Non-empty existing directory: rejected, contents untouched.
@@ -217,7 +281,7 @@ func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(taken, "keep.txt"), []byte("user data"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Source("taken", "source", false, false); err == nil {
+	if _, err := a.Source("taken", "source", false, false, false); err == nil {
 		t.Error("non-empty directory accepted without adopt")
 	}
 	if got, _ := os.ReadFile(filepath.Join(taken, "keep.txt")); string(got) != "user data" {
@@ -228,12 +292,12 @@ func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
 	if err := os.MkdirAll(empty, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Source("emptybox", "source", false, false); err != nil {
+	if _, err := a.Source("emptybox", "source", false, false, false); err != nil {
 		t.Errorf("empty directory rejected: %v", err)
 	}
 	// git required but not on PATH: rejected before writing.
 	t.Setenv("PATH", t.TempDir())
-	if _, err := a.Source("needs-git", "source", true, false); err == nil {
+	if _, err := a.Source("needs-git", "source", true, false, false); err == nil {
 		t.Error("missing git accepted")
 	}
 	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "needs-git")); !os.IsNotExist(err) {
@@ -266,7 +330,7 @@ func TestSourceRollsBackWhatItCreated(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("doomed", "source", true, false); err == nil {
+	if _, err := a.Source("doomed", "source", true, false, false); err == nil {
 		t.Fatal("expected git init failure")
 	}
 	dir := filepath.Join(a.Config.Workspace.Root, "00_Source", "doomed")
@@ -290,7 +354,7 @@ func TestFlowPreflightRejectsUnsafeMoves(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("demo", "source", false, false); err != nil {
+	if _, err := a.Source("demo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	// Destination already exists: rejected before renaming.
@@ -342,7 +406,7 @@ func TestFlowNoOpWhenAlreadyInStage(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("demo", "active", false, false); err != nil {
+	if _, err := a.Source("demo", "active", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	p, note, err := a.Flow("demo", "active", false, false)
@@ -369,7 +433,7 @@ func TestFlowPreservesSubfolders(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("rivu", "source", false, false); err != nil {
+	if _, err := a.Source("rivu", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	// Simulate a project living under a nested folder inside its channel.
@@ -451,7 +515,7 @@ func TestMapAndFlowSetAssetFlags(t *testing.T) {
 		return
 	}
 
-	if _, err := a.Source("demo", "source", false, false); err != nil {
+	if _, err := a.Source("demo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	if b, m := flags(t, "demo"); b || m {
@@ -464,7 +528,7 @@ func TestMapAndFlowSetAssetFlags(t *testing.T) {
 		t.Errorf("after Map: has_bank=%v has_map=%v, want true/true", b, m)
 	}
 
-	if _, err := a.Source("other", "source", false, false); err != nil {
+	if _, err := a.Source("other", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	if _, _, err := a.Flow("other", "active", false, false); err != nil {
@@ -488,7 +552,7 @@ func TestFlowRefreshesBankStage(t *testing.T) {
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 	a.Config.Automation.CreateBank = true
 
-	if _, err := a.Source("demo", "source", false, false); err != nil {
+	if _, err := a.Source("demo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
 	p, _, err := a.Flow("demo", "active", false, false)
@@ -520,13 +584,13 @@ func TestSourceSlugsNamesAndRejectsUnsafeOnes(t *testing.T) {
 	defer a.Close()
 	a.Config.Workspace.Root = filepath.Join(home, "ws")
 
-	if _, err := a.Source("../../evil", "source", false, false); err == nil {
+	if _, err := a.Source("../../evil", "source", false, false, false); err == nil {
 		t.Error("Source accepted a traversal name, want error")
 	}
-	if _, err := a.Source("CON", "source", false, false); err == nil {
+	if _, err := a.Source("CON", "source", false, false, false); err == nil {
 		t.Error("Source accepted a reserved device name, want error")
 	}
-	p, err := a.Source("My Project", "source", false, false)
+	p, err := a.Source("My Project", "source", false, false, false)
 	if err != nil {
 		t.Fatalf("Source: %v", err)
 	}

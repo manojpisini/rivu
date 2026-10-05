@@ -89,7 +89,10 @@ func validFlow(s string) bool {
 	}
 	return false
 }
-func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, error) {
+
+// Source creates a structured project, or with adopt registers an existing
+// directory as-is (Bank only — existing files are never touched, O-06).
+func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Project, error) {
 	if name == "" {
 		return registry.Project{}, fmt.Errorf("name is required")
 	}
@@ -113,7 +116,13 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 
 	// Spec 1.7 exclusivity: when the bridge owns git init, rivu never runs
 	// its own — warn and auto-correct rather than double-init.
+	// Adopt registers as-is: no git init, no Map, just Bank (O-06).
 	a.SourceWarnings = nil
+	if adopt && gitInit {
+		gitInit = false
+		a.SourceWarnings = append(a.SourceWarnings,
+			"--adopt registers and writes the Bank only — skipped git init for "+s)
+	}
 	bridgeOwns := a.Config.Automation.BridgeOwnsGitInit && a.Config.Bridge.Enabled
 	gitOwner := "none"
 	if bridgeOwns {
@@ -144,10 +153,10 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 		if rerr != nil {
 			return p, rerr
 		}
-		if len(entries) > 0 {
-			return p, fmt.Errorf("%s already exists and is not empty — adopt it instead of creating a new project", path)
+		if len(entries) > 0 && !adopt {
+			return p, fmt.Errorf("%s already exists and is not empty — re-run with --adopt to register it as-is", path)
 		}
-		wasEmpty = true
+		wasEmpty = len(entries) == 0
 	case os.IsNotExist(err):
 		createdRoot = true
 	default:
@@ -166,7 +175,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 	if a.Config.Automation.CreateBank {
 		plan.Bank = append(plan.Bank, ".metadata/project.toml", ".metadata/overview.md", ".metadata/decisions.md", ".metadata/tasks.md")
 	}
-	if a.Config.Automation.BuildMap {
+	if a.Config.Automation.BuildMap && !adopt {
 		plan.Write = append(plan.Write, ".metadata/agent/AGENTS.md", ".metadata/agent/PROJECT_MAP.md")
 	}
 	plan.Registry = append(plan.Registry, "register "+s)
@@ -212,7 +221,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 		}
 		p.HasBank = true
 	}
-	if a.Config.Automation.BuildMap {
+	if a.Config.Automation.BuildMap && !adopt {
 		metaRan = true
 		if e := mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 			return fail(e)

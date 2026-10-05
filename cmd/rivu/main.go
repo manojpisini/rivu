@@ -95,9 +95,9 @@ func scanCmd() *cobra.Command {
 }
 func sourceCmd() *cobra.Command {
 	var flow string
-	var git, dry bool
+	var git, dry, adopt bool
 	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *app.App) error {
-		p, e := a.Source(argsName, flow, git, dry)
+		p, e := a.Source(argsName, flow, git, adopt, dry)
 		if e != nil {
 			return e
 		}
@@ -114,6 +114,7 @@ func sourceCmd() *cobra.Command {
 	c.PreRun = func(_ *cobra.Command, args []string) { argsName = args[0] }
 	c.Flags().StringVar(&flow, "flow", "source", "Initial flow stage")
 	c.Flags().BoolVar(&git, "git", true, "Initialize git")
+	c.Flags().BoolVar(&adopt, "adopt", false, "Register an existing directory as-is (Bank only, files untouched)")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview without writing")
 	return c
 }
