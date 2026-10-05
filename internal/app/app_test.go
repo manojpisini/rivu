@@ -142,6 +142,54 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 	}
 }
 
+func TestSourceGitBranchAndGitignore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+	a.Config.Workspace.Root = filepath.Join(home, "ws")
+	a.Config.Git.DefaultBranch = "trunk"
+	a.Config.Templates.Default = "go-cli"
+
+	if _, err := a.Source("branched", "source", true, false); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	dir := filepath.Join(a.Config.Workspace.Root, "00_Source", "branched")
+	head, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(head), "refs/heads/trunk") {
+		t.Errorf("HEAD = %q, want refs/heads/trunk (git init -b)", head)
+	}
+	gi, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf(".gitignore not written: %v", err)
+	}
+	if !strings.Contains(string(gi), ".env") {
+		t.Errorf(".gitignore missing starter entries: %q", gi)
+	}
+}
+
+func TestGitignoreForTemplates(t *testing.T) {
+	for tmpl, want := range map[string]string{
+		"go-cli":     "vendor/",
+		"node-ts":    "node_modules/",
+		"python-web": "__pycache__/",
+		"":           "node_modules/",
+		"unknown":    ".env",
+	} {
+		if got := gitignoreFor(tmpl); !strings.Contains(got, want) {
+			t.Errorf("gitignoreFor(%q) missing %q", tmpl, want)
+		}
+	}
+}
+
 func TestSourcePreflightRejectsBeforeWriting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)

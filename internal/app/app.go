@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type App struct {
@@ -157,6 +158,7 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 			return p, fmt.Errorf("git is not on PATH — install git or drop --git: %w", err)
 		}
 		plan.Run = append(plan.Run, "git init")
+		plan.Write = append(plan.Write, ".gitignore")
 	}
 	if createdRoot {
 		plan.Create = append(plan.Create, path)
@@ -184,12 +186,24 @@ func (a *App) Source(name, flow string, gitInit, dry bool) (registry.Project, er
 	}
 	if gitInit {
 		gitRan = true
-		cmd := exec.Command("git", "init")
+		branch := a.Config.Git.DefaultBranch
+		if branch == "" {
+			branch = "main"
+		}
+		cmd := exec.Command("git", "init", "-b", branch)
 		cmd.Dir = path
 		if out, e := cmd.CombinedOutput(); e != nil {
 			return fail(fmt.Errorf("git init: %w: %s", e, out))
 		}
 		p.HasGit = true
+		// Starter .gitignore for the template — only when missing, the
+		// user owns it once created.
+		gi := filepath.Join(path, ".gitignore")
+		if _, e := os.Stat(gi); os.IsNotExist(e) {
+			if e := os.WriteFile(gi, []byte(gitignoreFor(a.Config.Templates.Default)), 0644); e != nil {
+				return fail(fmt.Errorf("write .gitignore: %w", e))
+			}
+		}
 	}
 	if a.Config.Automation.CreateBank {
 		metaRan = true
@@ -230,7 +244,32 @@ func rollbackSource(path string, createdRoot, wasEmpty, gitRan, metaRan bool) {
 	}
 	if gitRan {
 		_ = os.RemoveAll(filepath.Join(path, ".git"))
+		_ = os.Remove(filepath.Join(path, ".gitignore"))
 	}
+}
+
+// gitignoreFor returns starter .gitignore content for a Source template
+// (O-05). Template names are split into tokens ("go-cli" → go, cli) and the
+// first ecosystem token wins; unknown or empty names get a generic list.
+func gitignoreFor(template string) string {
+	goList := "# Rivu starter (.gitignore)\n.env\n.env.*\n!.env.example\n*.exe\n*.test\n*.out\n\n# build output\n/bin/\n/dist/\n\n# deps\nvendor/\n"
+	nodeList := "# Rivu starter (.gitignore)\n.env\n.env.*\n!.env.example\n\n# dependencies and build\nnode_modules/\ndist/\nbuild/\ncoverage/\n\n# logs and OS\n*.log\n.DS_Store\nThumbs.db\n"
+	pyList := "# Rivu starter (.gitignore)\n.env\n.env.*\n!.env.example\n\n# python\n__pycache__/\n*.pyc\n.venv/\nvenv/\ndist/\n*.egg-info/\n\n# logs and OS\n*.log\n.DS_Store\n"
+	generic := "# Rivu starter (.gitignore)\n.env\n.env.*\n!.env.example\n\n# dependencies and build\nnode_modules/\nvendor/\ndist/\nbuild/\n__pycache__/\n.venv/\n\n# logs and OS\n*.log\n.DS_Store\nThumbs.db\n"
+	tokens := strings.FieldsFunc(strings.ToLower(template), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, w := range tokens {
+		switch w {
+		case "go", "golang":
+			return goList
+		case "python", "py":
+			return pyList
+		case "node", "nodejs", "ts", "typescript", "react", "web", "next":
+			return nodeList
+		}
+	}
+	return generic
 }
 
 // Flow moves a project to another Flow stage: preflight → rename → bank
