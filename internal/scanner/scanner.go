@@ -1,14 +1,18 @@
 package scanner
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/google/uuid"
 	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/slug"
 )
 
 type Scanner struct {
@@ -24,79 +28,156 @@ func New(ignore []string, max int) *Scanner {
 	return &Scanner{m, max}
 }
 func exists(p string) bool { _, e := os.Stat(p); return e == nil }
-func slug(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	dash := false
-	for _, r := range s {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-			dash = false
-		} else if !dash {
-			b.WriteByte('-')
-			dash = true
-		}
+
+// bankID returns the ID stored in the Bank's project.toml, if present and
+// parseable. Adopting it keeps the ID stable across registry loss and lets
+// a moved project keep its identity (R-10). Empty means "mint a new one".
+func bankID(path string) string {
+	b, err := os.ReadFile(filepath.Join(path, ".metadata", "project.toml"))
+	if err != nil {
+		return ""
 	}
-	return strings.Trim(b.String(), "-")
+	var f struct {
+		Rivu struct {
+			ID string `toml:"id"`
+		} `toml:"rivu"`
+	}
+	if err := toml.Unmarshal(b, &f); err != nil {
+		return ""
+	}
+	return f.Rivu.ID
 }
+
+// marker is one detection rule: a file (or "*.<ext>" glob) in the project
+// root that signals an ecosystem. First marker with a language wins for
+// lang; stack tokens are deduplicated; strong markers make a directory a
+// project on their own.
+type marker struct {
+	name   string
+	lang   string
+	stack  string
+	strong bool
+}
+
+var markers = []marker{
+	{"go.mod", "Go", "go", true},
+	{"Cargo.toml", "Rust", "rust", true},
+	{"pyproject.toml", "Python", "python", true},
+	{"requirements.txt", "Python", "python", true},
+	{"setup.py", "Python", "python", true},
+	{"package.json", "JavaScript/TypeScript", "node", true},
+	{"deno.json", "JavaScript/TypeScript", "deno", true},
+	{"pom.xml", "Java", "java", true},
+	{"build.gradle", "Java", "gradle", true},
+	{"build.gradle.kts", "Kotlin", "gradle", true},
+	{"*.sln", "C#", "dotnet", true},
+	{"*.csproj", "C#", "dotnet", true},
+	{"Gemfile", "Ruby", "ruby", true},
+	{"composer.json", "PHP", "php", true},
+	{"mix.exs", "Elixir", "elixir", true},
+	{"CMakeLists.txt", "C/C++", "cmake", true},
+	{"Package.swift", "Swift", "swift", true},
+	{"Dockerfile", "", "docker", false},
+	{"bun.lockb", "", "bun", false},
+	{"pnpm-lock.yaml", "", "pnpm", false},
+}
+
+func markerPresent(root, name string) bool {
+	if strings.HasPrefix(name, "*.") {
+		matches, err := filepath.Glob(filepath.Join(root, name))
+		return err == nil && len(matches) > 0
+	}
+	return exists(filepath.Join(root, name))
+}
+
 func classify(path string) (string, []string, bool) {
 	var lang string
 	var stack []string
-	strong := false
-	if exists(filepath.Join(path, "go.mod")) {
-		lang = "Go"
-		stack = append(stack, "go")
-		strong = true
-	}
-	if exists(filepath.Join(path, "Cargo.toml")) {
-		if lang == "" {
-			lang = "Rust"
+	strong := exists(filepath.Join(path, ".git")) ||
+		exists(filepath.Join(path, ".metadata", "project.toml"))
+	for _, m := range markers {
+		if !markerPresent(path, m.name) {
+			continue
 		}
-		stack = append(stack, "rust")
-		strong = true
-	}
-	if exists(filepath.Join(path, "pyproject.toml")) {
-		if lang == "" {
-			lang = "Python"
+		if lang == "" && m.lang != "" {
+			lang = m.lang
 		}
-		stack = append(stack, "python")
-		strong = true
-	}
-	if exists(filepath.Join(path, "package.json")) {
-		if lang == "" {
-			lang = "JavaScript/TypeScript"
+		if m.stack != "" && !slices.Contains(stack, m.stack) {
+			stack = append(stack, m.stack)
 		}
-		stack = append(stack, "node")
-		strong = true
-	}
-	if exists(filepath.Join(path, ".git")) {
-		strong = true
-	}
-	if exists(filepath.Join(path, ".metadata", "project.toml")) {
-		strong = true
+		if m.strong {
+			strong = true
+		}
 	}
 	return lang, stack, strong
 }
-func flowFromChannel(c string) string {
-	switch c {
-	case "00_Source":
-		return "source"
-	case "01_Active":
-		return "active"
-	case "02_Maintenance":
-		return "maintenance"
-	case "03_Research":
-		return "research"
-	case "90_Delta":
-		return "delta"
-	}
-	return "source"
+
+// junkDirs are OS noise that never contains user projects.
+func isJunk(name string) bool {
+	return strings.EqualFold(name, "$RECYCLE.BIN") ||
+		strings.EqualFold(name, "System Volume Information")
 }
-func (s *Scanner) Scan(root string) ([]registry.Project, error) {
+
+// loadIgnorePatterns reads <root>/.rivuignore: a gitignore subset — blank
+// lines, # comments, trailing / (dir-only), leading or embedded / (anchored
+// to root), path.Match globs otherwise. ponytail: root-level file only, no
+// ! negation and no ** support — add per-dir discovery if users ask.
+func loadIgnorePatterns(root string) []string {
+	b, err := os.ReadFile(filepath.Join(root, ".rivuignore"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// ignored reports whether a directory's root-relative path matches any
+// .rivuignore pattern.
+func ignored(patterns []string, rel string) bool {
+	for _, p := range patterns {
+		anchored := strings.HasPrefix(p, "/")
+		p = strings.Trim(p, "/")
+		if p == "" {
+			continue
+		}
+		var ok bool
+		if anchored || strings.Contains(p, "/") {
+			ok, _ = path.Match(p, filepath.ToSlash(rel))
+		} else {
+			ok, _ = path.Match(p, filepath.Base(rel))
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Scan walks root and returns discovered projects. A missing or non-directory
+// root is an error; per-entry failures (permission denied, vanished files)
+// are collected as warnings so one bad folder never aborts the scan.
+func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 	var out []registry.Project
+	var warnings []error
 	root = filepath.Clean(root)
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot scan workspace root: %w", err)
+	}
+	if !fi.IsDir() {
+		return nil, nil, fmt.Errorf("workspace root %s is not a directory", root)
+	}
+	ignorePatterns := loadIgnorePatterns(root)
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			warnings = append(warnings, fmt.Errorf("skipped %s: %w", path, err))
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -105,7 +186,19 @@ func (s *Scanner) Scan(root string) ([]registry.Project, error) {
 			depth = len(strings.Split(rel, string(os.PathSeparator)))
 		}
 		if d.IsDir() && path != root {
-			if s.Ignore[d.Name()] || depth > s.MaxDepth {
+			name := d.Name()
+			// Default-skip: dot-dirs (except .metadata), OS junk, config
+			// ignore names, workspace .rivuignore patterns, over depth.
+			if (strings.HasPrefix(name, ".") && name != ".metadata") ||
+				isJunk(name) ||
+				s.Ignore[name] ||
+				ignored(ignorePatterns, rel) ||
+				depth > s.MaxDepth {
+				return filepath.SkipDir
+			}
+			sl, errSlug := slug.Make(name)
+			if errSlug != nil {
+				// Unsluggable folder names can never be registered safely.
 				return filepath.SkipDir
 			}
 			lang, stack, strong := classify(path)
@@ -115,13 +208,19 @@ func (s *Scanner) Scan(root string) ([]registry.Project, error) {
 				if len(parts) > 1 {
 					channel = parts[0]
 				}
+				id := bankID(path)
+				if id == "" {
+					id = uuid.NewString()
+				}
 				now := time.Now()
-				out = append(out, registry.Project{ID: uuid.NewString(), Name: d.Name(), Slug: slug(d.Name()), Path: path, Channel: channel, FlowStage: flowFromChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: true})
+				out = append(out, registry.Project{ID: id, Name: name, Slug: sl, Path: path, Root: root, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
 				return filepath.SkipDir
 			}
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, warnings, err
+	}
+	return out, warnings, nil
 }
-func StackJSON(v []string) string { b, _ := json.Marshal(v); return string(b) }

@@ -27,11 +27,30 @@ func withApp(fn func(*app.App) error) func(*cobra.Command, []string) error {
 			return e
 		}
 		defer a.Close()
+		for _, w := range a.ConfigWarnings {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
+		}
 		return fn(a)
 	}
 }
 func root() *cobra.Command {
 	r := &cobra.Command{Use: "rivu", Short: "Your project filesystem, mapped and flowing", Version: fmt.Sprintf("%s (%s, %s)", version, commit, date), SilenceUsage: true}
+	var home, cfgFile string
+	r.PersistentFlags().StringVar(&home, "home", "", "set Rivu home directory (overrides RIVU_HOME)")
+	r.PersistentFlags().StringVar(&cfgFile, "config", "", "set config file path (overrides RIVU_CONFIG)")
+	r.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		if home != "" {
+			if err := os.Setenv("RIVU_HOME", home); err != nil {
+				return fmt.Errorf("apply --home: %w", err)
+			}
+		}
+		if cfgFile != "" {
+			if err := os.Setenv("RIVU_CONFIG", cfgFile); err != nil {
+				return fmt.Errorf("apply --config: %w", err)
+			}
+		}
+		return nil
+	}
 	r.RunE = withApp(func(a *app.App) error {
 		ps, e := a.Registry.List()
 		if e != nil {
@@ -60,15 +79,25 @@ func scanCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
+		for _, w := range a.ScanWarnings {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
+		}
+		st, e := a.Registry.States()
+		if e != nil {
+			return e
+		}
+		if n := len(st.Missing) + len(st.Unregistered) + len(st.StageMismatch); n > 0 {
+			fmt.Printf("Attention: %d missing, %d unregistered, %d stage-mismatch\n", len(st.Missing), len(st.Unregistered), len(st.StageMismatch))
+		}
 		fmt.Printf("Mapped %d project(s) from %s\n", len(ps), a.Config.Workspace.Root)
 		return nil
 	})}
 }
 func sourceCmd() *cobra.Command {
 	var flow string
-	var git, dry bool
+	var git, dry, adopt bool
 	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *app.App) error {
-		p, e := a.Source(argsName, flow, git, dry)
+		p, e := a.Source(argsName, flow, git, adopt, dry)
 		if e != nil {
 			return e
 		}
@@ -77,11 +106,15 @@ func sourceCmd() *cobra.Command {
 		} else {
 			fmt.Printf("Sourced %s [%s] at %s\n", p.Name, p.FlowStage, p.Path)
 		}
+		for _, w := range a.SourceWarnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
 		return nil
 	})}
 	c.PreRun = func(_ *cobra.Command, args []string) { argsName = args[0] }
 	c.Flags().StringVar(&flow, "flow", "source", "Initial flow stage")
 	c.Flags().BoolVar(&git, "git", true, "Initialize git")
+	c.Flags().BoolVar(&adopt, "adopt", false, "Register an existing directory as-is (Bank only, files untouched)")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview without writing")
 	return c
 }
@@ -104,7 +137,7 @@ func openCmd() *cobra.Command {
 }
 func flowCmd() *cobra.Command {
 	var to string
-	var dry, yes bool
+	var dry, yes, flatten bool
 	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *app.App) error {
 		q := ""
 		if len(flowArgs) > 0 {
@@ -113,11 +146,11 @@ func flowCmd() *cobra.Command {
 		if !dry && !yes {
 			return fmt.Errorf("flow changes require --yes (or use --dry-run)")
 		}
-		p, d, e := a.Flow(q, to, dry)
+		_, note, e := a.Flow(q, to, flatten, dry)
 		if e != nil {
 			return e
 		}
-		fmt.Printf("%s: %s -> %s\n", map[bool]string{true: "DRY RUN", false: "Flowed"}[dry], p.Name, d)
+		fmt.Println(note)
 		return nil
 	})}
 	c.PreRun = func(_ *cobra.Command, args []string) { flowArgs = args }
@@ -125,6 +158,7 @@ func flowCmd() *cobra.Command {
 	_ = c.MarkFlagRequired("to")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview move")
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm move")
+	c.Flags().BoolVar(&flatten, "flatten", false, "Drop intermediate folders: Channel/Domain/proj -> Channel/proj")
 	return c
 }
 
@@ -235,9 +269,12 @@ func configCmd() *cobra.Command {
 		}
 		return e
 	}}, &cobra.Command{Use: "show", RunE: func(*cobra.Command, []string) error {
-		cfg, e := config.Load()
+		cfg, warns, e := config.Load()
 		if e != nil {
 			return e
+		}
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
 		fmt.Printf("workspace: %s\ndatabase: %s\neditor: %s\n", filepath.Clean(cfg.Workspace.Root), filepath.Clean(cfg.Data.DBPath), cfg.Editors.Default)
 		return nil

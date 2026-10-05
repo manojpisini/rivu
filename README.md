@@ -47,6 +47,8 @@ rivu tui
 
 The first run creates `~/.rivu/config.toml` with defaults. Set `[workspace].root` to your project workspace before scanning.
 
+Set `RIVU_HOME` to relocate Rivu's home (config + database) and `RIVU_CONFIG` to point at a specific config file — useful for isolated testing or per-project setups. Global flags `--home` and `--config` do the same per invocation.
+
 ## Essential commands
 
 ```bash
