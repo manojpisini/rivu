@@ -57,25 +57,25 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 
 	a.Config.Workspace.Root = root1
 	a.Config.Workspace.SecondaryRoots = []string{root2, filepath.Join(home, "gone")}
-	ps, err := a.Scan()
+	res, err := a.Scan()
 	if err != nil {
 		t.Fatalf("a missing secondary root must warn, not fail: %v", err)
 	}
 	paths := map[string]bool{}
-	for _, p := range ps {
+	for _, p := range res.Projects {
 		paths[p.Path] = true
 	}
 	if !paths[p1] || !paths[p2] {
 		t.Errorf("projects from both roots expected, got %v", paths)
 	}
 	found := false
-	for _, w := range a.ScanWarnings {
+	for _, w := range res.Warnings {
 		if strings.Contains(w, "secondary root skipped") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a secondary-root warning, got %v", a.ScanWarnings)
+		t.Errorf("expected a secondary-root warning, got %v", res.Warnings)
 	}
 }
 
@@ -106,11 +106,12 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 
 	// Bridge owns init: --git is auto-corrected away with a warning.
 	a.Config.Bridge.Enabled = true
-	if _, err := a.Source("bridged", "source", true, false, false); err != nil {
+	sr, err := a.Source("bridged", "source", true, false, false)
+	if err != nil {
 		t.Fatalf("Source with bridge: %v", err)
 	}
-	if len(a.SourceWarnings) != 1 || !strings.Contains(a.SourceWarnings[0], "bridge owns git init") {
-		t.Errorf("expected an auto-correction warning, got %v", a.SourceWarnings)
+	if len(sr.Warnings) != 1 || !strings.Contains(sr.Warnings[0], "bridge owns git init") {
+		t.Errorf("expected an auto-correction warning, got %v", sr.Warnings)
 	}
 	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "bridged", ".git")); !os.IsNotExist(err) {
 		t.Error("rivu ran git init despite the bridge owning it")
@@ -121,11 +122,12 @@ func TestSourceGitInitExclusivity(t *testing.T) {
 
 	// Bridge off, git requested: rivu inits and records itself.
 	a.Config.Bridge.Enabled = false
-	if _, err := a.Source("selfinit", "source", true, false, false); err != nil {
+	sr, err = a.Source("selfinit", "source", true, false, false)
+	if err != nil {
 		t.Fatalf("Source with git: %v", err)
 	}
-	if len(a.SourceWarnings) != 0 {
-		t.Errorf("unexpected warnings: %v", a.SourceWarnings)
+	if len(sr.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", sr.Warnings)
 	}
 	if _, err := os.Stat(filepath.Join(a.Config.Workspace.Root, "00_Source", "selfinit", ".git")); err != nil {
 		t.Errorf("git init did not run: %v", err)
@@ -211,10 +213,11 @@ func TestSourceAdoptExistingDir(t *testing.T) {
 	}
 
 	// With --adopt: registered, Bank kept as-is, no git, no Map, README untouched.
-	p, err := a.Source("legacy", "source", true, true, false)
+	sr, err := a.Source("legacy", "source", true, true, false)
 	if err != nil {
 		t.Fatalf("adopt Source: %v", err)
 	}
+	p := sr.Project
 	got, err := a.Registry.Resolve("legacy")
 	if err != nil || got.Path == "" {
 		t.Fatalf("registry row missing: %v", err)
@@ -236,8 +239,8 @@ func TestSourceAdoptExistingDir(t *testing.T) {
 	if p.HasGit || p.HasMap {
 		t.Errorf("flags = git:%v map:%v, want both false", p.HasGit, p.HasMap)
 	}
-	if len(a.SourceWarnings) != 1 || !strings.Contains(a.SourceWarnings[0], "skipped git init") {
-		t.Errorf("warnings = %v, want skipped-git-init warning", a.SourceWarnings)
+	if len(sr.Warnings) != 1 || !strings.Contains(sr.Warnings[0], "skipped git init") {
+		t.Errorf("warnings = %v, want skipped-git-init warning", sr.Warnings)
 	}
 }
 
@@ -367,7 +370,7 @@ func TestFlowPreflightRejectsUnsafeMoves(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dstDir, "demo"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := a.Flow("demo", "active", false, false); err == nil {
+	if _, err := a.Flow("demo", "active", false, false); err == nil {
 		t.Error("existing destination accepted")
 	}
 	if _, err := os.Stat(src); err != nil {
@@ -383,14 +386,14 @@ func TestFlowPreflightRejectsUnsafeMoves(t *testing.T) {
 	if err := a.Registry.Upsert(registry.Project{ID: "foreign-1", Name: "foreign", Slug: "foreign", Path: filepath.Join(foreign, "foreign"), Channel: "00_Source", FlowStage: "source"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := a.Flow("foreign", "active", false, false); err == nil {
+	if _, err := a.Flow("foreign", "active", false, false); err == nil {
 		t.Error("foreign-path project accepted")
 	}
 	// Missing source folder: rejected with a rescan hint.
 	if err := os.RemoveAll(src); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := a.Flow("demo", "active", false, false); err == nil {
+	if _, err := a.Flow("demo", "active", false, false); err == nil {
 		t.Error("missing source folder accepted")
 	}
 }
@@ -410,10 +413,11 @@ func TestFlowNoOpWhenAlreadyInStage(t *testing.T) {
 	if _, err := a.Source("demo", "active", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	p, note, err := a.Flow("demo", "active", false, false)
+	fr, err := a.Flow("demo", "active", false, false)
 	if err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
+	p, note := fr.Project, fr.Note
 	if !strings.Contains(note, "already") {
 		t.Errorf("expected a no-op note, got %q", note)
 	}
@@ -454,10 +458,11 @@ func TestFlowPreservesSubfolders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, note, err := a.Flow("rivu", "active", false, false)
+	fr, err := a.Flow("rivu", "active", false, false)
 	if err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
+	p, note := fr.Project, fr.Note
 	wantDst := filepath.Join(a.Config.Workspace.Root, "01_Active", "devtools", "rivu")
 	// Flow canonicalises paths; compare in canonical form (Windows 8.3).
 	if x, err := filepath.EvalSymlinks(wantDst); err == nil {
@@ -471,10 +476,11 @@ func TestFlowPreservesSubfolders(t *testing.T) {
 	}
 
 	// Flatten drops the intermediate folders.
-	p, note, err = a.Flow("rivu", "maintenance", true, false)
+	fr, err = a.Flow("rivu", "maintenance", true, false)
 	if err != nil {
 		t.Fatalf("Flow flatten: %v", err)
 	}
+	p, note = fr.Project, fr.Note
 	wantFlat := filepath.Join(a.Config.Workspace.Root, "02_Maintenance", "rivu")
 	if x, err := filepath.EvalSymlinks(wantFlat); err == nil {
 		wantFlat = x
@@ -532,7 +538,7 @@ func TestMapAndFlowSetAssetFlags(t *testing.T) {
 	if _, err := a.Source("other", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	if _, _, err := a.Flow("other", "active", false, false); err != nil {
+	if _, err := a.Flow("other", "active", false, false); err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
 	if b, m := flags(t, "other"); !b || m {
@@ -556,10 +562,11 @@ func TestFlowRefreshesBankStage(t *testing.T) {
 	if _, err := a.Source("demo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	p, _, err := a.Flow("demo", "active", false, false)
+	fr, err := a.Flow("demo", "active", false, false)
 	if err != nil {
 		t.Fatalf("Flow: %v", err)
 	}
+	p := fr.Project
 	b, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -591,7 +598,8 @@ func TestSourceSlugsNamesAndRejectsUnsafeOnes(t *testing.T) {
 	if _, err := a.Source("CON", "source", false, false, false); err == nil {
 		t.Error("Source accepted a reserved device name, want error")
 	}
-	p, err := a.Source("My Project", "source", false, false, false)
+	sr, err := a.Source("My Project", "source", false, false, false)
+	p := sr.Project
 	if err != nil {
 		t.Fatalf("Source: %v", err)
 	}
@@ -637,7 +645,8 @@ func openTestApp(t *testing.T) *App {
 
 func TestOpenProjectRefusesMissingPath(t *testing.T) {
 	a := openTestApp(t)
-	p, err := a.Source("vanish", "source", false, false, false)
+	sr, err := a.Source("vanish", "source", false, false, false)
+	p := sr.Project
 	if err != nil {
 		t.Fatalf("Source: %v", err)
 	}
@@ -674,7 +683,8 @@ func TestOpenProjectOpensOnDisk(t *testing.T) {
 	} else {
 		a.Config.Editors.Default = "true"
 	}
-	p, err := a.Source("handy", "source", false, false, false)
+	sr, err := a.Source("handy", "source", false, false, false)
+	p := sr.Project
 	if err != nil {
 		t.Fatalf("Source: %v", err)
 	}

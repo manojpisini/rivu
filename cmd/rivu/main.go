@@ -75,11 +75,11 @@ func tuiCmd() *cobra.Command {
 }
 func scanCmd() *cobra.Command {
 	return &cobra.Command{Use: "scan", Short: "Scan workspace and reconcile registry", RunE: withApp(func(a *service.App) error {
-		ps, e := a.Scan()
+		res, e := a.Scan()
 		if e != nil {
 			return e
 		}
-		for _, w := range a.ScanWarnings {
+		for _, w := range res.Warnings {
 			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
 		st, e := a.Registry.States()
@@ -89,7 +89,7 @@ func scanCmd() *cobra.Command {
 		if n := len(st.Missing) + len(st.Unregistered) + len(st.StageMismatch); n > 0 {
 			fmt.Printf("Attention: %d missing, %d unregistered, %d stage-mismatch\n", len(st.Missing), len(st.Unregistered), len(st.StageMismatch))
 		}
-		fmt.Printf("Mapped %d project(s) from %s\n", len(ps), a.Config.Workspace.Root)
+		fmt.Printf("Mapped %d project(s) from %s\n", len(res.Projects), a.Config.Workspace.Root)
 		return nil
 	})}
 }
@@ -97,16 +97,16 @@ func sourceCmd() *cobra.Command {
 	var flow string
 	var git, dry, adopt bool
 	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *service.App) error {
-		p, e := a.Source(argsName, flow, git, adopt, dry)
+		sr, e := a.Source(argsName, flow, git, adopt, dry)
 		if e != nil {
 			return e
 		}
 		if dry {
-			fmt.Printf("DRY RUN: create %s at %s\n", p.Name, p.Path)
+			fmt.Printf("DRY RUN: create %s at %s\n", sr.Project.Name, sr.Project.Path)
 		} else {
-			fmt.Printf("Sourced %s [%s] at %s\n", p.Name, p.FlowStage, p.Path)
+			fmt.Printf("Sourced %s [%s] at %s\n", sr.Project.Name, sr.Project.FlowStage, sr.Project.Path)
 		}
-		for _, w := range a.SourceWarnings {
+		for _, w := range sr.Warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
 		return nil
@@ -146,11 +146,11 @@ func flowCmd() *cobra.Command {
 		if !dry && !yes {
 			return fmt.Errorf("flow changes require --yes (or use --dry-run)")
 		}
-		_, note, e := a.Flow(q, to, flatten, dry)
+		fr, e := a.Flow(q, to, flatten, dry)
 		if e != nil {
 			return e
 		}
-		fmt.Println(note)
+		fmt.Println(fr.Note)
 		return nil
 	})}
 	c.PreRun = func(_ *cobra.Command, args []string) { flowArgs = args }

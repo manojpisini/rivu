@@ -25,11 +25,6 @@ type App struct {
 	Registry *registry.Registry
 	// ConfigWarnings lists unrecognized config keys found at load time.
 	ConfigWarnings []string
-	// ScanWarnings lists per-project failures from the last Scan.
-	ScanWarnings []string
-	// SourceWarnings lists corrections applied by the last Source, such as
-	// git init being skipped because the bridge owns it (spec 1.7).
-	SourceWarnings []string
 }
 
 func Open() (*App, error) {
@@ -50,36 +45,36 @@ func Open() (*App, error) {
 	return &App{Config: c, Registry: r, ConfigWarnings: warns}, nil
 }
 func (a *App) Close() error { return a.Registry.Close() }
-func (a *App) Scan() ([]registry.Project, error) {
+func (a *App) Scan() (ScanResult, error) {
 	if e := config.ValidateRoot(a.Config); e != nil {
-		return nil, e
+		return ScanResult{}, e
 	}
 	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
 	var all []registry.Project
-	a.ScanWarnings = nil
+	var warnings []string
 	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
 	for i, root := range roots {
 		ps, scanWarns, e := s.Scan(root)
 		for _, w := range scanWarns {
-			a.ScanWarnings = append(a.ScanWarnings, w.Error())
+			warnings = append(warnings, w.Error())
 		}
 		if e != nil {
 			if i == 0 {
-				return nil, e
+				return ScanResult{}, e
 			}
-			a.ScanWarnings = append(a.ScanWarnings, fmt.Sprintf("secondary root skipped: %v", e))
+			warnings = append(warnings, fmt.Sprintf("secondary root skipped: %v", e))
 			continue
 		}
 		all = append(all, ps...)
 	}
 	warns, e := a.Registry.ApplyDiscovery(all)
 	for _, w := range warns {
-		a.ScanWarnings = append(a.ScanWarnings, w.Error())
+		warnings = append(warnings, w.Error())
 	}
 	if e != nil {
-		return nil, fmt.Errorf("scan could not be committed: %w", e)
+		return ScanResult{}, fmt.Errorf("scan could not be committed: %w", e)
 	}
-	return all, nil
+	return ScanResult{Projects: all, Warnings: warnings}, nil
 }
 func channel(flow string) string { return registry.ChannelForFlow(flow) }
 func validFlow(s string) bool {
@@ -92,35 +87,35 @@ func validFlow(s string) bool {
 
 // Source creates a structured project, or with adopt registers an existing
 // directory as-is (Bank only — existing files are never touched, O-06).
-func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Project, error) {
+func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult, error) {
 	if name == "" {
-		return registry.Project{}, fmt.Errorf("name is required")
+		return SourceResult{}, fmt.Errorf("name is required")
 	}
 	if flow == "" {
 		flow = "source"
 	}
 	if !validFlow(flow) {
-		return registry.Project{}, fmt.Errorf("invalid flow stage %q", flow)
+		return SourceResult{}, fmt.Errorf("invalid flow stage %q", flow)
 	}
 	s, e := slug.Make(name)
 	if e != nil {
-		return registry.Project{}, fmt.Errorf("invalid project name: %w", e)
+		return SourceResult{}, fmt.Errorf("invalid project name: %w", e)
 	}
 	ch := channel(flow)
 	chDir := filepath.Join(a.Config.Workspace.Root, ch)
 	path := filepath.Join(chDir, s)
 	if !pathsafe.Contained(chDir, path) {
-		return registry.Project{}, fmt.Errorf("destination %s escapes channel folder %s", path, chDir)
+		return SourceResult{}, fmt.Errorf("destination %s escapes channel folder %s", path, chDir)
 	}
 	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
 
 	// Spec 1.7 exclusivity: when the bridge owns git init, rivu never runs
 	// its own — warn and auto-correct rather than double-init.
 	// Adopt registers as-is: no git init, no Map, just Bank (O-06).
-	a.SourceWarnings = nil
+	var warnings []string
 	if adopt && gitInit {
 		gitInit = false
-		a.SourceWarnings = append(a.SourceWarnings,
+		warnings = append(warnings,
 			"--adopt registers and writes the Bank only — skipped git init for "+s)
 	}
 	bridgeOwns := a.Config.Automation.BridgeOwnsGitInit && a.Config.Bridge.Enabled
@@ -129,7 +124,7 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Proj
 		gitOwner = "bridge"
 		if gitInit {
 			gitInit = false
-			a.SourceWarnings = append(a.SourceWarnings,
+			warnings = append(warnings,
 				"bridge owns git init (automation.bridge_owns_git_init) — skipped rivu git init for "+s)
 		}
 	} else if gitInit {
@@ -140,31 +135,31 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Proj
 	// rejected Source never leaves half-created folders behind.
 	plan := SourcePlan{Name: name, Slug: s, Channel: ch, FlowStage: flow, ChannelDir: chDir, Path: path}
 	if taken, err := a.Registry.SlugOrPathTaken(s, path); err != nil {
-		return p, err
+		return SourceResult{}, err
 	} else if taken {
-		return p, fmt.Errorf("slug %q or path %s is already registered — pick another name, or open the existing project", s, path)
+		return SourceResult{}, fmt.Errorf("slug %q or path %s is already registered — pick another name, or open the existing project", s, path)
 	}
 	createdRoot, wasEmpty := false, false
 	switch fi, err := os.Lstat(path); {
 	case err == nil && !fi.IsDir():
-		return p, fmt.Errorf("%s exists and is not a directory", path)
+		return SourceResult{}, fmt.Errorf("%s exists and is not a directory", path)
 	case err == nil:
 		entries, rerr := os.ReadDir(path)
 		if rerr != nil {
-			return p, rerr
+			return SourceResult{}, rerr
 		}
 		if len(entries) > 0 && !adopt {
-			return p, fmt.Errorf("%s already exists and is not empty — re-run with --adopt to register it as-is", path)
+			return SourceResult{}, fmt.Errorf("%s already exists and is not empty — re-run with --adopt to register it as-is", path)
 		}
 		wasEmpty = len(entries) == 0
 	case os.IsNotExist(err):
 		createdRoot = true
 	default:
-		return p, err
+		return SourceResult{}, err
 	}
 	if gitInit {
 		if _, err := exec.LookPath("git"); err != nil {
-			return p, fmt.Errorf("git is not on PATH — install git or drop --git: %w", err)
+			return SourceResult{}, fmt.Errorf("git is not on PATH — install git or drop --git: %w", err)
 		}
 		plan.Run = append(plan.Run, "git init")
 		plan.Write = append(plan.Write, ".gitignore")
@@ -181,12 +176,12 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Proj
 	plan.Registry = append(plan.Registry, "register "+s)
 
 	if dry {
-		return p, nil
+		return SourceResult{Project: p, Plan: plan, Warnings: warnings}, nil
 	}
 	gitRan, metaRan := false, false
-	fail := func(err error) (registry.Project, error) {
+	fail := func(err error) (SourceResult, error) {
 		rollbackSource(path, createdRoot, wasEmpty, gitRan, metaRan)
-		return p, err
+		return SourceResult{}, err
 	}
 	if createdRoot {
 		if e := os.MkdirAll(path, 0755); e != nil {
@@ -233,7 +228,7 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (registry.Proj
 	}
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "sourced")
-	return p, nil
+	return SourceResult{Project: p, Plan: plan, Warnings: warnings}, nil
 }
 
 // rollbackSource removes only what this Source run created: the project
@@ -284,17 +279,17 @@ func gitignoreFor(template string) string {
 // Flow moves a project to another Flow stage: preflight → rename → bank
 // sync → one registry transaction; any failure undoes the rename so the
 // registry never points at a path that no longer exists (B-08). The
-// returned string is a human note for the caller to print.
-func (a *App) Flow(q, to string, flatten, dry bool) (registry.Project, string, error) {
+// returned FlowResult carries the applied plan and a human note.
+func (a *App) Flow(q, to string, flatten, dry bool) (FlowResult, error) {
 	if !validFlow(to) {
-		return registry.Project{}, "", fmt.Errorf("invalid flow stage %q", to)
+		return FlowResult{}, fmt.Errorf("invalid flow stage %q", to)
 	}
 	p, e := a.Registry.Resolve(q)
 	if e != nil {
-		return p, "", e
+		return FlowResult{}, e
 	}
 	if p.FlowStage == to {
-		return p, fmt.Sprintf("%s is already in %s — nothing to move", p.Name, to), nil
+		return FlowResult{Project: p, Note: fmt.Sprintf("%s is already in %s — nothing to move", p.Name, to)}, nil
 	}
 
 	// Root this project lives under; rows predating P1.29 fall back to the
@@ -322,56 +317,55 @@ func (a *App) Flow(q, to string, flatten, dry bool) (registry.Project, string, e
 	// Preflight (P1.42): every hazard checked before anything moves.
 	fi, err := os.Lstat(p.Path)
 	if err != nil {
-		return p, "", fmt.Errorf("project folder is not on disk — run `rivu scan` to reconcile: %w", err)
+		return FlowResult{}, fmt.Errorf("project folder is not on disk — run `rivu scan` to reconcile: %w", err)
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return p, "", fmt.Errorf("%s is a symlink — move it manually, then rescan", p.Path)
+		return FlowResult{}, fmt.Errorf("%s is a symlink — move it manually, then rescan", p.Path)
 	}
 	if !fi.IsDir() {
-		return p, "", fmt.Errorf("%s is not a directory", p.Path)
+		return FlowResult{}, fmt.Errorf("%s is not a directory", p.Path)
 	}
 	if !a.knownRoot(p.Path) {
-		return p, "", fmt.Errorf("%s is outside the configured workspace roots — add its root to workspace.root or secondary_roots first", p.Path)
+		return FlowResult{}, fmt.Errorf("%s is outside the configured workspace roots — add its root to workspace.root or secondary_roots first", p.Path)
 	}
 	switch _, err := os.Lstat(dest); {
 	case err == nil:
-		return p, "", fmt.Errorf("destination %s already exists — move it out of the way first", dest)
+		return FlowResult{}, fmt.Errorf("destination %s already exists — move it out of the way first", dest)
 	case !os.IsNotExist(err):
-		return p, "", err
+		return FlowResult{}, err
 	}
 	if filepath.VolumeName(p.Path) != filepath.VolumeName(dest) {
-		return p, "", fmt.Errorf("flow cannot cross volumes: %s and %s", p.Path, dest)
+		return FlowResult{}, fmt.Errorf("flow cannot cross volumes: %s and %s", p.Path, dest)
 	}
 	if !pathsafe.Contained(filepath.Join(root, ch), dest) {
-		return p, "", fmt.Errorf("destination %s escapes channel folder %s", dest, filepath.Join(root, ch))
+		return FlowResult{}, fmt.Errorf("destination %s escapes channel folder %s", dest, filepath.Join(root, ch))
 	}
 	plan := FlowPlan{ID: p.ID, Query: q, FromStage: p.FlowStage, ToStage: to, Src: p.Path, Dst: dest, Root: root, Flatten: flatten,
 		Move:     []string{p.Path + " -> " + dest},
 		Bank:     []string{".metadata/project.toml"},
 		Registry: []string{"update path, stage and flags for " + p.Slug}}
-	_ = plan
 
 	if dry {
-		return p, fmt.Sprintf("DRY RUN: would move %s: %s -> %s", p.Name, p.Path, dest), nil
+		return FlowResult{Project: p, Plan: plan, Note: fmt.Sprintf("DRY RUN: would move %s: %s -> %s", p.Name, p.Path, dest)}, nil
 	}
 	if e := os.MkdirAll(filepath.Dir(dest), 0755); e != nil {
-		return p, "", e
+		return FlowResult{}, e
 	}
 	orig := p
 	moved := orig.Path != dest
 	if moved {
 		if e := os.Rename(orig.Path, dest); e != nil {
-			return p, "", fmt.Errorf("move failed: %w", e)
+			return FlowResult{}, fmt.Errorf("move failed: %w", e)
 		}
 	}
-	fail := func(err error) (registry.Project, string, error) {
+	fail := func(err error) (FlowResult, error) {
 		if moved {
 			if re := os.Rename(dest, orig.Path); re != nil {
-				return orig, "", fmt.Errorf("%w (restoring %s also failed: %v)", err, orig.Path, re)
+				return FlowResult{}, fmt.Errorf("%w (restoring %s also failed: %v)", err, orig.Path, re)
 			}
 		}
 		_ = bank.Sync(orig, "rivu") // put the old stage back into the moved-back file
-		return orig, "", err
+		return FlowResult{}, err
 	}
 	p.Path, p.Channel, p.FlowStage = dest, ch, to
 	if e := bank.Sync(p, "rivu"); e != nil {
@@ -380,7 +374,7 @@ func (a *App) Flow(q, to string, flatten, dry bool) (registry.Project, string, e
 	if e := a.Registry.ApplyFlow(p.ID, dest, ch, to, true, p.HasMap); e != nil {
 		return fail(fmt.Errorf("record move: %w", e))
 	}
-	return p, fmt.Sprintf("Flowed %s: %s -> %s", p.Name, orig.Path, dest), nil
+	return FlowResult{Project: p, Plan: plan, Note: fmt.Sprintf("Flowed %s: %s -> %s", p.Name, orig.Path, dest)}, nil
 }
 
 // knownRoot reports whether target sits inside any configured workspace root.
