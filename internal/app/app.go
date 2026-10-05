@@ -463,5 +463,30 @@ func (a *App) OpenProject(q string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Start()
+	// B-05: terminal editors need the TTY — Start() would return while vim
+	// still owns it. GUI editors are fire-and-forget (Start), terminal
+	// editors block until the user exits (Run).
+	if isGUIEditor(editor, a.Config.Editors.GUI) {
+		return cmd.Start()
+	}
+	return cmd.Run()
+}
+
+// isGUIEditor reports whether an editor command line names a GUI editor
+// from the configured [editors].gui list.
+func isGUIEditor(editor string, gui []string) bool {
+	fields := strings.Fields(editor)
+	if len(fields) == 0 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(fields[0]))
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+		base = strings.TrimSuffix(base, ext)
+	}
+	for _, g := range gui {
+		if base == strings.ToLower(g) {
+			return true
+		}
+	}
+	return false
 }

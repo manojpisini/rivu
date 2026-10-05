@@ -147,6 +147,9 @@ func TestNewSectionsDefaults(t *testing.T) {
 	if c.Bridge.Enabled {
 		t.Error("bridge.enabled should default to false")
 	}
+	if len(c.Editors.GUI) == 0 || c.Editors.GUI[0] != "code" {
+		t.Errorf("editors.gui default = %v, want a list starting with code", c.Editors.GUI)
+	}
 }
 
 func TestPartialFileKeepsDefaults(t *testing.T) {

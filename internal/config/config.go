@@ -19,6 +19,7 @@ type Config struct {
 	} `toml:"workspace"`
 	Editors struct {
 		Default     string            `toml:"default"`
+		GUI         []string          `toml:"gui"`
 		PerLanguage map[string]string `toml:"per_language"`
 	} `toml:"editors"`
 	Automation struct {
@@ -121,6 +122,7 @@ func Default() Config {
 		c.Editors.Default = "${EDITOR}"
 	}
 	c.Editors.PerLanguage = map[string]string{}
+	c.Editors.GUI = []string{"code", "code-insiders", "zed", "subl", "sublime_text", "idea", "webstorm", "pycharm", "cursor", "windsurf"}
 	c.Automation.BridgeOwnsGitInit = true
 	c.Automation.CreateBank = true
 	c.Automation.BuildMap = true
