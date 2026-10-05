@@ -35,6 +35,7 @@ type App struct {
 type Service interface {
 	List(f Filter) ([]registry.Project, error)
 	Stats(days int) (Stats, error)
+	Dashboard() (Dashboard, error)
 	Scan() (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name string, o SourceOpts) (SourceResult, error)

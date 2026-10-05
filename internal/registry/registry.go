@@ -448,6 +448,32 @@ func (r *Registry) LogActivity(projectID, event string) error {
 	return err
 }
 
+// Activity is one activity_log row joined to its project for display
+// (P2.21).
+type Activity struct {
+	Slug, Name, Event string
+	OccurredAt        time.Time
+}
+
+// RecentActivity returns the newest events across all projects, newest
+// first.
+func (r *Registry) RecentActivity(limit int) ([]Activity, error) {
+	rows, err := r.DB.Query(`SELECT p.slug,p.name,a.event,a.occurred_at FROM activity_log a JOIN projects p ON p.id=a.project_id ORDER BY a.occurred_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Activity
+	for rows.Next() {
+		var a Activity
+		if err := rows.Scan(&a.Slug, &a.Name, &a.Event, &a.OccurredAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // ConfluenceProjectIDs returns the project IDs that are members of the
 // confluence identified by name or id. An unknown confluence matches
 // nothing: filters narrow a list, they do not fail it.

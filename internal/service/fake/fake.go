@@ -27,6 +27,7 @@ type Service struct {
 	MapStatuses []service.MapStatus
 	StatsRes    service.Stats
 	StatsErr    error
+	DashRes     service.Dashboard
 	OpenErr     error
 	CurrentP    registry.Project
 	HasCurrent  bool
@@ -59,6 +60,10 @@ func (f *Service) List(service.Filter) ([]registry.Project, error) {
 
 func (f *Service) Stats(days int) (service.Stats, error) {
 	return f.StatsRes, f.StatsErr
+}
+
+func (f *Service) Dashboard() (service.Dashboard, error) {
+	return f.DashRes, f.StatsErr
 }
 
 func (f *Service) Scan() (service.ScanResult, error) {
