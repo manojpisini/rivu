@@ -117,12 +117,12 @@ func TestExpandForms(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			got := expand(tt.in)
+			got := Expand(tt.in)
 			if !filepath.IsAbs(got) {
-				t.Errorf("expand(%q) = %q, not absolute", tt.in, got)
+				t.Errorf("Expand(%q) = %q, not absolute", tt.in, got)
 			}
 			if tt.want != "" && got != tt.want {
-				t.Errorf("expand(%q) = %q, want %q", tt.in, got, tt.want)
+				t.Errorf("Expand(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}

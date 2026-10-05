@@ -54,8 +54,21 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	r.RunE = withApp(func(a *service.App, _ []string) error {
 		return launchTUI(a)
 	})
-	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd(), versionCmd(version, commit, date))
+	r.AddCommand(tuiCmd(), scanCmd(), sourceCmd(), openCmd(), flowCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd(), versionCmd(version, commit, date), initCmd())
 	return r
+}
+
+// requireFlag validates a required flag during the args stage, which
+// runs before PersistentPreRunE — cobra's own required-flag check runs
+// after it and would misreport usage errors as exit 1. Keep
+// MarkFlagRequired too so help still shows "(required)".
+func requireFlag(name string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, _ []string) error {
+		if !cmd.Flags().Changed(name) {
+			return fmt.Errorf("required flag --%s not set", name)
+		}
+		return nil
+	}
 }
 
 // withApp opens the service, prints config warnings to stderr, runs fn

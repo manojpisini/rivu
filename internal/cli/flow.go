@@ -10,7 +10,7 @@ import (
 func flowCmd() *cobra.Command {
 	var to string
 	var dry, yes, flatten bool
-	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *service.App, args []string) error {
+	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MatchAll(cobra.MaximumNArgs(1), requireFlag("to")), Short: "Move a project to another Flow stage", RunE: withApp(func(a *service.App, args []string) error {
 		q := ""
 		if len(args) > 0 {
 			q = args[0]

@@ -64,7 +64,7 @@ type Config struct {
 
 func Dir() (string, error) {
 	if h := os.Getenv("RIVU_HOME"); h != "" {
-		return expand(h), nil
+		return Expand(h), nil
 	}
 	h, err := os.UserHomeDir()
 	if err != nil {
@@ -74,7 +74,7 @@ func Dir() (string, error) {
 }
 func Path() (string, error) {
 	if p := os.Getenv("RIVU_CONFIG"); p != "" {
-		return expand(p), nil
+		return Expand(p), nil
 	}
 	d, err := Dir()
 	if err != nil {
@@ -83,9 +83,9 @@ func Path() (string, error) {
 	return filepath.Join(d, "config.toml"), nil
 }
 
-// expand resolves $VAR/${VAR} references and a leading ~, then makes
+// Expand resolves $VAR/${VAR} references and a leading ~, then makes
 // the path absolute so downstream code never mixes relative and absolute.
-func expand(s string) string {
+func Expand(s string) string {
 	s = os.Expand(s, func(k string) string {
 		if v, ok := os.LookupEnv(k); ok {
 			return v
@@ -219,11 +219,11 @@ func Load() (Config, []string, error) {
 	for _, key := range md.Undecoded() {
 		warnings = append(warnings, fmt.Sprintf("unknown config key %q in %s — fix the typo or remove it", key, p))
 	}
-	c.Workspace.Root = expand(c.Workspace.Root)
+	c.Workspace.Root = Expand(c.Workspace.Root)
 	for i, r := range c.Workspace.SecondaryRoots {
-		c.Workspace.SecondaryRoots[i] = expand(r)
+		c.Workspace.SecondaryRoots[i] = Expand(r)
 	}
-	c.Data.DBPath = expand(c.Data.DBPath)
+	c.Data.DBPath = Expand(c.Data.DBPath)
 	return c, warnings, nil
 }
 func Save(c Config) error {
