@@ -468,6 +468,20 @@ func (r *Registry) ConfluenceProjectIDs(q string) ([]string, error) {
 	return ids, rows.Err()
 }
 
+// AttachConfluence links projectID to the confluence named name,
+// creating the confluence when it does not exist. Repeating a membership
+// is a no-op; an empty name is an error.
+func (r *Registry) AttachConfluence(projectID, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("confluence name is required")
+	}
+	if _, err := r.DB.Exec(`INSERT INTO confluences(id,name) VALUES(?,?) ON CONFLICT(name) DO NOTHING`, uuid.NewString(), name); err != nil {
+		return fmt.Errorf("create confluence: %w", err)
+	}
+	_, err := r.DB.Exec(`INSERT INTO project_confluences(project_id,confluence_id) SELECT ?,id FROM confluences WHERE name=? ON CONFLICT DO NOTHING`, projectID, name)
+	return err
+}
+
 // Typed sentinel errors for project lookup.
 var (
 	ErrNotFound  = errors.New("project not found")

@@ -16,6 +16,6 @@ func openCmd() *cobra.Command {
 		if len(args) > 0 {
 			q = args[0]
 		}
-		return a.OpenProject(q)
+		return a.OpenProject(q, "")
 	}}
 }

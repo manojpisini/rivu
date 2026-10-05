@@ -16,7 +16,7 @@ func seedProjects(t *testing.T, a *App, names ...string) map[string]registry.Pro
 	t.Helper()
 	out := map[string]registry.Project{}
 	for _, n := range names {
-		if _, err := a.Source(n, "source", false, false, false); err != nil {
+		if _, err := a.Source(n, SourceOpts{Flow: "source"}); err != nil {
 			t.Fatalf("Source %s: %v", n, err)
 		}
 		p, err := a.Registry.Find(n)

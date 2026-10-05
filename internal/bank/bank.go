@@ -5,11 +5,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/manojpisini/rivu/internal/registry"
 )
+
+// Meta carries the optional Source classification fields written into
+// project.toml (O-04); empty fields are omitted from the file.
+type Meta struct {
+	Domain, Type, Template, Description string
+	Confluences                         []string
+}
 
 func writeNew(path, body string) error {
 	if _, e := os.Stat(path); e == nil {
@@ -69,7 +77,7 @@ func Sync(p registry.Project, owner string) error {
 	}
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
-func Build(p registry.Project, owner string) error {
+func Build(p registry.Project, owner string, m Meta) error {
 	d := filepath.Join(p.Path, ".metadata")
 	if err := os.MkdirAll(d, 0755); err != nil {
 		return err
@@ -81,10 +89,32 @@ func Build(p registry.Project, owner string) error {
 	if created.IsZero() {
 		created = time.Now()
 	}
-	toml := fmt.Sprintf("[rivu]\nid = %q\nname = %q\nslug = %q\nflow_stage = %q\nchannel = %q\nconfluences = []\ngit_init_owner = %q\ncreated_at = %q\n", p.ID, p.Name, p.Slug, p.FlowStage, p.Channel, owner, created.Format(time.RFC3339))
-	files := map[string]string{"project.toml": toml, "overview.md": fmt.Sprintf("# Project Overview: %s\n\n## Purpose\n\n## Current status\n\n## Important context\n\n## Next steps\n", p.Name), "decisions.md": "# Decisions\n\n## " + time.Now().Format("2006-01-02") + " — Initial project setup\n", "tasks.md": "# Tasks\n\n## Now\n\n## Next\n\n## Later\n"}
-	for n, b := range files {
-		if err := writeNew(filepath.Join(d, n), b); err != nil {
+	conf := "[]"
+	if len(m.Confluences) > 0 {
+		quoted := make([]string, len(m.Confluences))
+		for i, c := range m.Confluences {
+			quoted[i] = fmt.Sprintf("%q", c)
+		}
+		conf = "[" + strings.Join(quoted, ", ") + "]"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[rivu]\nid = %q\nname = %q\nslug = %q\nflow_stage = %q\nchannel = %q\nconfluences = %s\ngit_init_owner = %q\ncreated_at = %q\n",
+		p.ID, p.Name, p.Slug, p.FlowStage, p.Channel, conf, owner, created.Format(time.RFC3339))
+	if m.Domain != "" {
+		fmt.Fprintf(&b, "domain = %q\n", m.Domain)
+	}
+	if m.Type != "" {
+		fmt.Fprintf(&b, "type = %q\n", m.Type)
+	}
+	if m.Template != "" {
+		fmt.Fprintf(&b, "template = %q\n", m.Template)
+	}
+	if m.Description != "" {
+		fmt.Fprintf(&b, "description = %q\n", m.Description)
+	}
+	files := map[string]string{"project.toml": b.String(), "overview.md": fmt.Sprintf("# Project Overview: %s\n\n## Purpose\n\n## Current status\n\n## Important context\n\n## Next steps\n", p.Name), "decisions.md": "# Decisions\n\n## " + time.Now().Format("2006-01-02") + " — Initial project setup\n", "tasks.md": "# Tasks\n\n## Now\n\n## Next\n\n## Later\n"}
+	for n, body := range files {
+		if err := writeNew(filepath.Join(d, n), body); err != nil {
 			return err
 		}
 	}

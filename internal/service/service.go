@@ -36,10 +36,10 @@ type Service interface {
 	List(f Filter) ([]registry.Project, error)
 	Scan() (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
-	Source(name, flow string, gitInit, adopt, dry bool) (SourceResult, error)
+	Source(name string, o SourceOpts) (SourceResult, error)
 	Flow(q, to string, flatten, dry bool) (FlowResult, error)
 	Map(q string) error
-	OpenProject(q string) error
+	OpenProject(q, editor string) error
 	Current() (registry.Project, bool)
 }
 
@@ -111,12 +111,30 @@ var Stages = []string{"source", "active", "maintenance", "research", "delta"}
 
 func validFlow(s string) bool { return slices.Contains(Stages, s) }
 
+// SourceOpts are the Source inputs from the CLI flags and the TUI
+// wizard (O-04). The zero value is a plain `source`-stage project with
+// git init.
+type SourceOpts struct {
+	Flow        string // initial stage; "" means "source"
+	Git         bool   // run git init
+	Adopt       bool   // register an existing directory as-is
+	Dry         bool   // plan only, write nothing
+	Domain      string // extra folder level: Channel/Domain/slug
+	Type        string // project classification, stored in project.toml
+	Language    string // registry language override
+	Template    string // starter template name ("" uses [templates].default)
+	Description string // one-line purpose, stored in project.toml
+	Confluence  []string
+	Bridge      bool // bridge owns git init for this project (spec 1.7)
+}
+
 // Source creates a structured project, or with adopt registers an existing
 // directory as-is (Bank only — existing files are never touched, O-06).
-func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult, error) {
+func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 	if name == "" {
 		return SourceResult{}, fmt.Errorf("name is required")
 	}
+	flow := o.Flow
 	if flow == "" {
 		flow = "source"
 	}
@@ -128,30 +146,43 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 		return SourceResult{}, fmt.Errorf("invalid project name: %w", e)
 	}
 	ch := channel(flow)
-	chDir := filepath.Join(a.Config.Workspace.Root, ch)
-	path := filepath.Join(chDir, s)
-	if !pathsafe.Contained(chDir, path) {
-		return SourceResult{}, fmt.Errorf("destination %s escapes channel folder %s", path, chDir)
+	base := filepath.Join(a.Config.Workspace.Root, ch)
+	dir := base
+	if o.Domain != "" {
+		d, err := slug.Make(o.Domain)
+		if err != nil {
+			return SourceResult{}, fmt.Errorf("invalid domain: %w", err)
+		}
+		dir = filepath.Join(base, d)
 	}
-	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
+	path := filepath.Join(dir, s)
+	if !pathsafe.Contained(base, path) {
+		return SourceResult{}, fmt.Errorf("destination %s escapes channel folder %s", path, base)
+	}
+	p := registry.Project{ID: uuid.NewString(), Name: name, Slug: s, Path: path, Channel: ch, FlowStage: flow, Language: o.Language, CreatedAt: time.Now(), LastScannedAt: time.Now(), OnDisk: true, Registered: true}
 
 	// Spec 1.7 exclusivity: when the bridge owns git init, rivu never runs
 	// its own — warn and auto-correct rather than double-init.
 	// Adopt registers as-is: no git init, no Map, just Bank (O-06).
+	gitInit := o.Git
 	var warnings []string
-	if adopt && gitInit {
+	if o.Adopt && gitInit {
 		gitInit = false
 		warnings = append(warnings,
 			"--adopt registers and writes the Bank only — skipped git init for "+s)
 	}
-	bridgeOwns := a.Config.Automation.BridgeOwnsGitInit && a.Config.Bridge.Enabled
+	bridgeOwns := o.Bridge || (a.Config.Automation.BridgeOwnsGitInit && a.Config.Bridge.Enabled)
 	gitOwner := "none"
 	if bridgeOwns {
 		gitOwner = "bridge"
 		if gitInit {
 			gitInit = false
+			why := "automation.bridge_owns_git_init"
+			if o.Bridge {
+				why = "--bridge"
+			}
 			warnings = append(warnings,
-				"bridge owns git init (automation.bridge_owns_git_init) — skipped rivu git init for "+s)
+				"bridge owns git init ("+why+") — skipped rivu git init for "+s)
 		}
 	} else if gitInit {
 		gitOwner = "rivu"
@@ -159,13 +190,18 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 
 	// Preflight (O-01): every check runs before the first write, so a
 	// rejected Source never leaves half-created folders behind.
-	plan := SourcePlan{Name: name, Slug: s, Channel: ch, FlowStage: flow, ChannelDir: chDir, Path: path}
+	plan := SourcePlan{Name: name, Slug: s, Channel: ch, FlowStage: flow, ChannelDir: dir, Path: path}
 	if taken, err := a.Registry.SlugOrPathTaken(s, path); err != nil {
 		return SourceResult{}, err
 	} else if taken {
 		return SourceResult{}, fmt.Errorf("slug %q or path %s is already registered — pick another name, or open the existing project", s, path)
 	}
-	createdRoot, wasEmpty := false, false
+	createdRoot, wasEmpty, createdDomain := false, false, false
+	if o.Domain != "" {
+		if _, err := os.Lstat(dir); os.IsNotExist(err) {
+			createdDomain = true
+		}
+	}
 	switch fi, err := os.Lstat(path); {
 	case err == nil && !fi.IsDir():
 		return SourceResult{}, fmt.Errorf("%s exists and is not a directory", path)
@@ -174,7 +210,7 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 		if rerr != nil {
 			return SourceResult{}, rerr
 		}
-		if len(entries) > 0 && !adopt {
+		if len(entries) > 0 && !o.Adopt {
 			return SourceResult{}, fmt.Errorf("%s already exists and is not empty — re-run with --adopt to register it as-is", path)
 		}
 		wasEmpty = len(entries) == 0
@@ -196,23 +232,27 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 	if a.Config.Automation.CreateBank {
 		plan.Bank = append(plan.Bank, ".metadata/project.toml", ".metadata/overview.md", ".metadata/decisions.md", ".metadata/tasks.md")
 	}
-	if a.Config.Automation.BuildMap && !adopt {
+	if a.Config.Automation.BuildMap && !o.Adopt {
 		plan.Write = append(plan.Write, ".metadata/agent/AGENTS.md", ".metadata/agent/PROJECT_MAP.md")
 	}
 	plan.Registry = append(plan.Registry, "register "+s)
 
-	if dry {
+	if o.Dry {
 		return SourceResult{Project: p, Plan: plan, Warnings: warnings}, nil
 	}
 	gitRan, metaRan := false, false
 	fail := func(err error) (SourceResult, error) {
-		rollbackSource(path, createdRoot, wasEmpty, gitRan, metaRan)
+		rollbackSource(path, dir, createdRoot, createdDomain, wasEmpty, gitRan, metaRan)
 		return SourceResult{}, err
 	}
 	if createdRoot {
 		if e := os.MkdirAll(path, 0755); e != nil {
 			return fail(e)
 		}
+	}
+	tmpl := o.Template
+	if tmpl == "" {
+		tmpl = a.Config.Templates.Default
 	}
 	if gitInit {
 		gitRan = true
@@ -230,19 +270,20 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 		// user owns it once created.
 		gi := filepath.Join(path, ".gitignore")
 		if _, e := os.Stat(gi); os.IsNotExist(e) {
-			if e := os.WriteFile(gi, []byte(gitignoreFor(a.Config.Templates.Default)), 0644); e != nil {
+			if e := os.WriteFile(gi, []byte(gitignoreFor(tmpl)), 0644); e != nil {
 				return fail(fmt.Errorf("write .gitignore: %w", e))
 			}
 		}
 	}
 	if a.Config.Automation.CreateBank {
 		metaRan = true
-		if e := bank.Build(p, gitOwner); e != nil {
+		meta := bank.Meta{Domain: o.Domain, Type: o.Type, Template: o.Template, Description: o.Description, Confluences: o.Confluence}
+		if e := bank.Build(p, gitOwner, meta); e != nil {
 			return fail(e)
 		}
 		p.HasBank = true
 	}
-	if a.Config.Automation.BuildMap && !adopt {
+	if a.Config.Automation.BuildMap && !o.Adopt {
 		metaRan = true
 		if e := mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 			return fail(e)
@@ -252,18 +293,27 @@ func (a *App) Source(name, flow string, gitInit, adopt, dry bool) (SourceResult,
 	if e := a.Registry.Upsert(p); e != nil {
 		return fail(fmt.Errorf("register project: %w", e))
 	}
+	for _, c := range o.Confluence {
+		if e := a.Registry.AttachConfluence(p.ID, c); e != nil {
+			warnings = append(warnings, fmt.Sprintf("could not attach confluence %q: %v", c, e))
+		}
+	}
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "sourced")
 	return SourceResult{Project: p, Plan: plan, Warnings: warnings}, nil
 }
 
 // rollbackSource removes only what this Source run created: the project
-// directory if this run made it, otherwise just .metadata/.git inside a
+// directory if this run made it (plus the domain folder, if this run
+// made that and it is now empty), otherwise just .metadata/.git inside a
 // directory that was empty at preflight. A directory with pre-existing
 // content (adopt mode) is never touched — safety rule 1.
-func rollbackSource(path string, createdRoot, wasEmpty, gitRan, metaRan bool) {
+func rollbackSource(path, dir string, createdRoot, createdDomain, wasEmpty, gitRan, metaRan bool) {
 	if createdRoot {
 		_ = os.RemoveAll(path) // rivu-allow-remove: root this run created
+		if createdDomain {
+			_ = os.Remove(dir) // rivu-allow-remove: empty domain folder this run created
+		}
 		return
 	}
 	if !wasEmpty {
@@ -451,7 +501,7 @@ func (a *App) Map(q string) error {
 	if e != nil {
 		return e
 	}
-	if e = bank.Build(p, "rivu"); e != nil {
+	if e = bank.Build(p, "rivu", bank.Meta{}); e != nil {
 		return e
 	}
 	if e = mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
@@ -459,7 +509,10 @@ func (a *App) Map(q string) error {
 	}
 	return a.Registry.UpdateFlags(p.ID, true, true)
 }
-func (a *App) OpenProject(q string) error {
+
+// OpenProject opens q (or Current when empty) in editor, or the
+// resolved default when editor is "".
+func (a *App) OpenProject(q, editor string) error {
 	p, e := a.Registry.Resolve(q)
 	if e != nil {
 		return e
@@ -473,7 +526,9 @@ func (a *App) OpenProject(q string) error {
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.MarkOpened(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "opened")
-	editor := editorlaunch.Resolve(a.Config, p.Language)
+	if editor == "" {
+		editor = editorlaunch.Resolve(a.Config, p.Language)
+	}
 	args, err := editorlaunch.Parse(editor)
 	if err != nil {
 		return err

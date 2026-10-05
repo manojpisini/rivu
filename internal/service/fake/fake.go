@@ -64,7 +64,7 @@ func (f *Service) Doctor(q string) ([]doctor.Report, error) {
 	return f.DoctorRes, f.DoctorErr
 }
 
-func (f *Service) Source(name, flow string, gitInit, adopt, dry bool) (service.SourceResult, error) {
+func (f *Service) Source(name string, o service.SourceOpts) (service.SourceResult, error) {
 	f.record("Source " + name)
 	return f.SourceRes, f.SourceErr
 }
@@ -79,7 +79,7 @@ func (f *Service) Map(q string) error {
 	return f.MapErr
 }
 
-func (f *Service) OpenProject(q string) error {
+func (f *Service) OpenProject(q, editor string) error {
 	f.record("OpenProject " + q)
 	return f.OpenErr
 }

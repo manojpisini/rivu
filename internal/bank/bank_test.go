@@ -17,14 +17,14 @@ var update = flag.Bool("update", false, "rewrite golden files")
 
 func TestBuildProtectsExistingFiles(t *testing.T) {
 	p := registry.Project{ID: "1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source"}
-	if err := Build(p, "rivu"); err != nil {
+	if err := Build(p, "rivu", Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	f := filepath.Join(p.Path, ".metadata", "overview.md")
 	if err := os.WriteFile(f, []byte("custom"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Build(p, "rivu"); err != nil {
+	if err := Build(p, "rivu", Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(f)
@@ -37,7 +37,7 @@ func TestBuildProtectsExistingFiles(t *testing.T) {
 		if err := os.WriteFile(g, []byte("mine"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if err := Build(p, "rivu"); err != nil {
+		if err := Build(p, "rivu", Meta{}); err != nil {
 			t.Fatal(err)
 		}
 		if got, _ := os.ReadFile(g); string(got) != "mine" {
@@ -49,7 +49,7 @@ func TestBuildProtectsExistingFiles(t *testing.T) {
 func TestSyncRewritesStageAndPreservesExtras(t *testing.T) {
 	created := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
 	p := registry.Project{ID: "1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source", CreatedAt: created}
-	if err := Build(p, "rivu"); err != nil {
+	if err := Build(p, "rivu", Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	meta := filepath.Join(p.Path, ".metadata")
@@ -161,7 +161,7 @@ func TestSyncCreatesMissingProjectToml(t *testing.T) {
 
 func TestBuildAndSyncCoverDefaultBranches(t *testing.T) {
 	p := registry.Project{ID: "2", Name: "Defaults", Slug: "defaults", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source"}
-	if err := Build(p, ""); err != nil {
+	if err := Build(p, "", Meta{}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
