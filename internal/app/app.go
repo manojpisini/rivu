@@ -6,6 +6,7 @@ import (
 	"github.com/manojpisini/rivu/internal/bank"
 	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/doctor"
+	"github.com/manojpisini/rivu/internal/editorlaunch"
 	"github.com/manojpisini/rivu/internal/mapgen"
 	"github.com/manojpisini/rivu/internal/pathsafe"
 	"github.com/manojpisini/rivu/internal/registry"
@@ -14,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -447,46 +447,20 @@ func (a *App) OpenProject(q string) error {
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.MarkOpened(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "opened")
-	editor := a.Config.Editors.Default
-	if editor == "${EDITOR}" || editor == "" {
-		editor = os.Getenv("EDITOR")
+	editor := editorlaunch.Resolve(a.Config, p.Language)
+	args, err := editorlaunch.Parse(editor)
+	if err != nil {
+		return err
 	}
-	if editor == "" {
-		if runtime.GOOS == "windows" {
-			editor = "code"
-		} else {
-			editor = "vi"
-		}
-	}
-	parts := strings.Fields(editor)
-	cmd := exec.Command(parts[0], append(parts[1:], p.Path)...)
+	cmd := exec.Command(args[0], append(args[1:], p.Path)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// B-05: terminal editors need the TTY — Start() would return while vim
 	// still owns it. GUI editors are fire-and-forget (Start), terminal
 	// editors block until the user exits (Run).
-	if isGUIEditor(editor, a.Config.Editors.GUI) {
+	if editorlaunch.IsGUI(editor, a.Config.Editors.GUI) {
 		return cmd.Start()
 	}
 	return cmd.Run()
-}
-
-// isGUIEditor reports whether an editor command line names a GUI editor
-// from the configured [editors].gui list.
-func isGUIEditor(editor string, gui []string) bool {
-	fields := strings.Fields(editor)
-	if len(fields) == 0 {
-		return false
-	}
-	base := strings.ToLower(filepath.Base(fields[0]))
-	for _, ext := range []string{".exe", ".cmd", ".bat", ".ps1"} {
-		base = strings.TrimSuffix(base, ext)
-	}
-	for _, g := range gui {
-		if base == strings.ToLower(g) {
-			return true
-		}
-	}
-	return false
 }

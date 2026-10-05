@@ -78,33 +78,6 @@ func TestScanIncludesSecondaryRoots(t *testing.T) {
 	}
 }
 
-func TestIsGUIEditor(t *testing.T) {
-	gui := []string{"code", "zed", "subl", "idea"}
-	for _, tc := range []struct {
-		editor string
-		want   bool
-	}{
-		{"code", true},
-		{"Code.exe", true},
-		{"C:\\tools\\Code.exe", true},
-		{"/usr/bin/code --wait", true},
-		{"zed .", true},
-		{"vim", false},
-		{"nvim .", false},
-		{"/usr/bin/vi", false},
-		{"notacode", false},
-		{"", false},
-	} {
-		if got := isGUIEditor(tc.editor, gui); got != tc.want {
-			t.Errorf("isGUIEditor(%q) = %v, want %v", tc.editor, got, tc.want)
-		}
-	}
-	// Empty list: nothing is treated as GUI (user override wins).
-	if isGUIEditor("code", nil) {
-		t.Error("empty gui list must classify nothing as GUI")
-	}
-}
-
 func TestSourceGitInitExclusivity(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
