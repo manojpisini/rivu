@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -32,7 +33,7 @@ type App struct {
 // equivalent over the same layer). *App implements it; tests use the
 // hand-written fake in internal/service/fake.
 type Service interface {
-	List() ([]registry.Project, error)
+	List(f Filter) ([]registry.Project, error)
 	Scan() (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name, flow string, gitInit, adopt, dry bool) (SourceResult, error)
@@ -62,9 +63,6 @@ func Open() (*App, error) {
 	return &App{Config: c, Registry: r, ConfigWarnings: warns}, nil
 }
 func (a *App) Close() error { return a.Registry.Close() }
-
-// List returns every lifecycle-tracked project ordered for display.
-func (a *App) List() ([]registry.Project, error) { return a.Registry.List() }
 
 // Current returns the current project and whether one is set.
 func (a *App) Current() (registry.Project, bool) {
@@ -106,13 +104,12 @@ func (a *App) Scan() (ScanResult, error) {
 	return ScanResult{Projects: all, Warnings: warnings}, nil
 }
 func channel(flow string) string { return registry.ChannelForFlow(flow) }
-func validFlow(s string) bool {
-	switch s {
-	case "source", "active", "maintenance", "research", "delta":
-		return true
-	}
-	return false
-}
+
+// Stages are the five Flow stages in lifecycle order. validFlow, the
+// CLI's --flow validation and stats all read this one list.
+var Stages = []string{"source", "active", "maintenance", "research", "delta"}
+
+func validFlow(s string) bool { return slices.Contains(Stages, s) }
 
 // Source creates a structured project, or with adopt registers an existing
 // directory as-is (Bank only — existing files are never touched, O-06).

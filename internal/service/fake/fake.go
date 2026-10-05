@@ -50,7 +50,7 @@ func (f *Service) record(s string) {
 	f.calls = append(f.calls, s)
 }
 
-func (f *Service) List() ([]registry.Project, error) {
+func (f *Service) List(service.Filter) ([]registry.Project, error) {
 	return f.Projects, nil
 }
 

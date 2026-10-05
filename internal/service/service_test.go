@@ -721,7 +721,7 @@ func TestListAndCurrent(t *testing.T) {
 	if _, err := a.Source("solo", "source", false, false, false); err != nil {
 		t.Fatalf("Source: %v", err)
 	}
-	ps, err := a.List()
+	ps, err := a.List(Filter{})
 	if err != nil || len(ps) != 1 || ps[0].Name != "solo" {
 		t.Errorf("List = %v, %v; want one project solo", ps, err)
 	}

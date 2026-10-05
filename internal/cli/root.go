@@ -6,6 +6,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/spf13/cobra"
@@ -68,6 +69,23 @@ func requireFlag(name string) cobra.PositionalArgs {
 			return fmt.Errorf("required flag --%s not set", name)
 		}
 		return nil
+	}
+}
+
+// enumFlag validates a flag's value during the args stage, so a bad
+// value exits 2 (usage) before any I/O runs. Empty means "not set".
+func enumFlag(name string, allowed ...string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, _ []string) error {
+		v := cmd.Flags().Lookup(name)
+		if v == nil || v.Value.String() == "" {
+			return nil
+		}
+		for _, a := range allowed {
+			if v.Value.String() == a {
+				return nil
+			}
+		}
+		return fmt.Errorf("--%s must be one of: %s", name, strings.Join(allowed, ", "))
 	}
 }
 

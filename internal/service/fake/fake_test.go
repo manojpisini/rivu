@@ -19,7 +19,7 @@ func TestFakeServesCannedResultsAndRecordsCalls(t *testing.T) {
 		CurrentP:   registry.Project{ID: "1"},
 	}
 
-	if ps, err := f.List(); err != nil || len(ps) != 1 || ps[0].Name != "demo" {
+	if ps, err := f.List(service.Filter{}); err != nil || len(ps) != 1 || ps[0].Name != "demo" {
 		t.Errorf("List = %v, %v; want demo", ps, err)
 	}
 	res, err := f.Scan()

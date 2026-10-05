@@ -448,6 +448,26 @@ func (r *Registry) LogActivity(projectID, event string) error {
 	return err
 }
 
+// ConfluenceProjectIDs returns the project IDs that are members of the
+// confluence identified by name or id. An unknown confluence matches
+// nothing: filters narrow a list, they do not fail it.
+func (r *Registry) ConfluenceProjectIDs(q string) ([]string, error) {
+	rows, err := r.DB.Query(`SELECT pc.project_id FROM project_confluences pc JOIN confluences c ON c.id=pc.confluence_id WHERE c.name=? OR c.id=?`, q, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // Typed sentinel errors for project lookup.
 var (
 	ErrNotFound  = errors.New("project not found")
