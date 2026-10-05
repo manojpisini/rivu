@@ -17,8 +17,9 @@ func TestResolveChain(t *testing.T) {
 	}
 
 	c.Editors.PerLanguage = map[string]string{"go": "nvim"}
-	if got := Resolve(c, "rust"); got != c.Editors.Default {
-		t.Errorf("non-matching language = %q, want default %q", got, c.Editors.Default)
+	c.Editors.Default = "subl"
+	if got := Resolve(c, "rust"); got != "subl" {
+		t.Errorf("non-matching language = %q, want explicit default subl", got)
 	}
 
 	// Placeholder default defers to $VISUAL over $EDITOR.
