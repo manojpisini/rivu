@@ -8,7 +8,7 @@ import (
 )
 
 func pathCmd() *cobra.Command {
-	return &cobra.Command{
+	c := &cobra.Command{
 		Use:   "path [project]",
 		Short: "Print a project path to stdout",
 		Long: `Print a project path to stdout and nothing else, so shell wrappers can
@@ -31,4 +31,6 @@ With no argument the Current project's path is printed.`,
 			return nil
 		}),
 	}
+	c.ValidArgsFunction = completeProjects
+	return c
 }

@@ -60,6 +60,7 @@ projects: every failure is reported and the exit code reflects it.`,
 			return bulkFail(res.Failed)
 		}),
 	}
+	c.ValidArgsFunction = completeProjects
 	c.Flags().StringVar(&to, "to", "", "Target: source|active|maintenance|research|delta")
 	_ = c.MarkFlagRequired("to")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview move")

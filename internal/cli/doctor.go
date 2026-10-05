@@ -84,6 +84,7 @@ any report scores below N, so CI can gate on health.`,
 			return nil
 		}),
 	}
+	c.ValidArgsFunction = completeProjects
 	c.Flags().BoolVar(&all, "all", false, "Check every project (same as omitting the argument)")
 	c.Flags().BoolVar(&asJSON, "json", false, "Print JSON with schema 1")
 	c.Flags().IntVar(&minScore, "min-score", 0, "Exit 5 when any score is below this (0 disables)")

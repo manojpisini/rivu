@@ -27,6 +27,7 @@ func deltaCmd() *cobra.Command {
 		printDelta(os.Stdout, dry, fr)
 		return nil
 	})}
+	c.ValidArgsFunction = completeProjects
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview the move without touching anything")
 	c.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm the move")
 	return c

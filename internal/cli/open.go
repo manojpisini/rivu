@@ -37,6 +37,7 @@ does not change.`,
 			return a.OpenProject(q, editor)
 		}),
 	}
+	c.ValidArgsFunction = completeProjects
 	c.Flags().StringVar(&editor, "editor", "", "Editor to use for this run (default: configured editor)")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Print the command instead of launching it")
 	return c

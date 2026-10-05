@@ -54,6 +54,7 @@ sync is needed, so CI can gate on it.`,
 			return nil
 		}),
 	}
+	c.ValidArgsFunction = completeProjects
 	c.Flags().BoolVar(&all, "all", false, "Sync every project")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Report what would change, write nothing")
 	c.Flags().BoolVar(&check, "check", false, "Exit 5 when any Map needs a sync")
