@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/google/uuid"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/slug"
@@ -25,6 +26,25 @@ func New(ignore []string, max int) *Scanner {
 	return &Scanner{m, max}
 }
 func exists(p string) bool { _, e := os.Stat(p); return e == nil }
+
+// bankID returns the ID stored in the Bank's project.toml, if present and
+// parseable. Adopting it keeps the ID stable across registry loss and lets
+// a moved project keep its identity (R-10). Empty means "mint a new one".
+func bankID(path string) string {
+	b, err := os.ReadFile(filepath.Join(path, ".metadata", "project.toml"))
+	if err != nil {
+		return ""
+	}
+	var f struct {
+		Rivu struct {
+			ID string `toml:"id"`
+		} `toml:"rivu"`
+	}
+	if err := toml.Unmarshal(b, &f); err != nil {
+		return ""
+	}
+	return f.Rivu.ID
+}
 func classify(path string) (string, []string, bool) {
 	var lang string
 	var stack []string
@@ -104,8 +124,12 @@ func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 				if len(parts) > 1 {
 					channel = parts[0]
 				}
+				id := bankID(path)
+				if id == "" {
+					id = uuid.NewString()
+				}
 				now := time.Now()
-				out = append(out, registry.Project{ID: uuid.NewString(), Name: d.Name(), Slug: sl, Path: path, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
+				out = append(out, registry.Project{ID: id, Name: d.Name(), Slug: sl, Path: path, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
 				return filepath.SkipDir
 			}
 		}

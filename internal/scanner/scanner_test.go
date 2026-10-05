@@ -24,6 +24,54 @@ func TestScanDetectsGoProject(t *testing.T) {
 	}
 }
 
+func TestScanAdoptsBankID(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "demo")
+	meta := filepath.Join(p, ".metadata")
+	if err := os.MkdirAll(meta, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "project.toml"),
+		[]byte("[rivu]\nid = \"11111111-2222-3333-4444-555555555555\"\nname = \"demo\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(got))
+	}
+	if got[0].ID != "11111111-2222-3333-4444-555555555555" {
+		t.Errorf("Bank ID not adopted, got %q", got[0].ID)
+	}
+}
+
+func TestScanMalformedBankIDMintsFresh(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "demo")
+	meta := filepath.Join(p, ".metadata")
+	if err := os.MkdirAll(meta, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "project.toml"), []byte("not = [valid"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID == "" {
+		t.Fatalf("malformed Bank file must not block scan: %#v", got)
+	}
+}
+
 func TestScanMissingRootErrors(t *testing.T) {
 	if _, _, err := New(nil, 6).Scan(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("missing root must be an error, not zero projects")
