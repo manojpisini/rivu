@@ -8,13 +8,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var argsName string
-
 func sourceCmd() *cobra.Command {
 	var flow string
 	var git, dry, adopt bool
-	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *service.App) error {
-		sr, e := a.Source(argsName, flow, git, adopt, dry)
+	c := &cobra.Command{Use: "source <name>", Aliases: []string{"new"}, Args: cobra.ExactArgs(1), Short: "Source a structured project", RunE: withApp(func(a *service.App, args []string) error {
+		sr, e := a.Source(args[0], flow, git, adopt, dry)
 		if e != nil {
 			return e
 		}
@@ -28,7 +26,6 @@ func sourceCmd() *cobra.Command {
 		}
 		return nil
 	})}
-	c.PreRun = func(_ *cobra.Command, args []string) { argsName = args[0] }
 	c.Flags().StringVar(&flow, "flow", "source", "Initial flow stage")
 	c.Flags().BoolVar(&git, "git", true, "Initialize git")
 	c.Flags().BoolVar(&adopt, "adopt", false, "Register an existing directory as-is (Bank only, files untouched)")

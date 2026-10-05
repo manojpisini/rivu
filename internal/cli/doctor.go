@@ -7,13 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var docArgs []string
-
 func doctorCmd() *cobra.Command {
-	c := &cobra.Command{Use: "doctor [project]", Args: cobra.MaximumNArgs(1), Short: "Run project health checks", RunE: withApp(func(a *service.App) error {
+	c := &cobra.Command{Use: "doctor [project]", Args: cobra.MaximumNArgs(1), Short: "Run project health checks", RunE: withApp(func(a *service.App, args []string) error {
 		q := ""
-		if len(docArgs) > 0 {
-			q = docArgs[0]
+		if len(args) > 0 {
+			q = args[0]
 		}
 		rs, e := a.Doctor(q)
 		if e != nil {
@@ -31,6 +29,5 @@ func doctorCmd() *cobra.Command {
 		}
 		return nil
 	})}
-	c.PreRun = func(_ *cobra.Command, args []string) { docArgs = args }
 	return c
 }

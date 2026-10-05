@@ -32,7 +32,7 @@ func Root(version, commit, date string) *cobra.Command {
 		}
 		return nil
 	}
-	r.RunE = withApp(func(a *service.App) error {
+	r.RunE = withApp(func(a *service.App, _ []string) error {
 		ps, e := a.List()
 		if e != nil {
 			return e
@@ -44,9 +44,10 @@ func Root(version, commit, date string) *cobra.Command {
 }
 
 // withApp opens the service, prints config warnings to stderr, runs fn
-// and closes the app.
-func withApp(fn func(*service.App) error) func(*cobra.Command, []string) error {
-	return func(_ *cobra.Command, _ []string) error {
+// with the command's positional args, and closes the app. No globals —
+// every command reads its args from here (X-01).
+func withApp(fn func(*service.App, []string) error) func(*cobra.Command, []string) error {
+	return func(_ *cobra.Command, args []string) error {
 		a, e := service.Open()
 		if e != nil {
 			return e
@@ -55,6 +56,6 @@ func withApp(fn func(*service.App) error) func(*cobra.Command, []string) error {
 		for _, w := range a.ConfigWarnings {
 			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
-		return fn(a)
+		return fn(a, args)
 	}
 }

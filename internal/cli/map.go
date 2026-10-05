@@ -7,14 +7,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var mapArgs []string
-
 func mapCmd() *cobra.Command {
 	c := &cobra.Command{Use: "agent", Short: "Agent Map operations"}
-	c.AddCommand(&cobra.Command{Use: "sync [project]", Args: cobra.MaximumNArgs(1), RunE: withApp(func(a *service.App) error {
+	c.AddCommand(&cobra.Command{Use: "sync [project]", Args: cobra.MaximumNArgs(1), RunE: withApp(func(a *service.App, args []string) error {
 		q := ""
-		if len(mapArgs) > 0 {
-			q = mapArgs[0]
+		if len(args) > 0 {
+			q = args[0]
 		}
 		if e := a.Map(q); e != nil {
 			return e
@@ -22,6 +20,5 @@ func mapCmd() *cobra.Command {
 		fmt.Println("Map built successfully")
 		return nil
 	})})
-	c.Commands()[0].PreRun = func(_ *cobra.Command, args []string) { mapArgs = args }
 	return c
 }

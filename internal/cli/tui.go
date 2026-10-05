@@ -7,7 +7,7 @@ import (
 )
 
 func tuiCmd() *cobra.Command {
-	return &cobra.Command{Use: "tui", Short: "Launch the terminal interface", RunE: withApp(func(a *service.App) error {
+	return &cobra.Command{Use: "tui", Short: "Launch the terminal interface", RunE: withApp(func(a *service.App, _ []string) error {
 		if a.Config.Workspace.AutoRescan {
 			_, _ = a.Scan()
 		}

@@ -9,7 +9,7 @@ import (
 )
 
 func scanCmd() *cobra.Command {
-	return &cobra.Command{Use: "scan", Short: "Scan workspace and reconcile registry", RunE: withApp(func(a *service.App) error {
+	return &cobra.Command{Use: "scan", Short: "Scan workspace and reconcile registry", RunE: withApp(func(a *service.App, _ []string) error {
 		res, e := a.Scan()
 		if e != nil {
 			return e

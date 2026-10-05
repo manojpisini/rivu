@@ -8,7 +8,7 @@ import (
 )
 
 func listCmd() *cobra.Command {
-	return &cobra.Command{Use: "list", Aliases: []string{"index"}, Short: "List registered projects", RunE: withApp(func(a *service.App) error {
+	return &cobra.Command{Use: "list", Aliases: []string{"index"}, Short: "List registered projects", RunE: withApp(func(a *service.App, _ []string) error {
 		ps, e := a.List()
 		if e != nil {
 			return e

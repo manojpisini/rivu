@@ -9,7 +9,7 @@ import (
 )
 
 func dashboardCmd() *cobra.Command {
-	return &cobra.Command{Use: "dashboard", Short: "Print a dashboard snapshot", RunE: withApp(func(a *service.App) error {
+	return &cobra.Command{Use: "dashboard", Short: "Print a dashboard snapshot", RunE: withApp(func(a *service.App, _ []string) error {
 		ps, e := a.List()
 		if e != nil {
 			return e

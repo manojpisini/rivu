@@ -8,7 +8,7 @@ import (
 )
 
 func statsCmd() *cobra.Command {
-	return &cobra.Command{Use: "stats", Short: "Show portfolio metrics", RunE: withApp(func(a *service.App) error {
+	return &cobra.Command{Use: "stats", Short: "Show portfolio metrics", RunE: withApp(func(a *service.App, _ []string) error {
 		ps, e := a.List()
 		if e != nil {
 			return e

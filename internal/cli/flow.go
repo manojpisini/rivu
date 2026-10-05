@@ -7,15 +7,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var flowArgs []string
-
 func flowCmd() *cobra.Command {
 	var to string
 	var dry, yes, flatten bool
-	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *service.App) error {
+	c := &cobra.Command{Use: "flow [project]", Aliases: []string{"move"}, Args: cobra.MaximumNArgs(1), Short: "Move a project to another Flow stage", RunE: withApp(func(a *service.App, args []string) error {
 		q := ""
-		if len(flowArgs) > 0 {
-			q = flowArgs[0]
+		if len(args) > 0 {
+			q = args[0]
 		}
 		if !dry && !yes {
 			return fmt.Errorf("flow changes require --yes (or use --dry-run)")
@@ -27,7 +25,6 @@ func flowCmd() *cobra.Command {
 		fmt.Println(fr.Note)
 		return nil
 	})}
-	c.PreRun = func(_ *cobra.Command, args []string) { flowArgs = args }
 	c.Flags().StringVar(&to, "to", "", "Target: source|active|maintenance|research|delta")
 	_ = c.MarkFlagRequired("to")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview move")
