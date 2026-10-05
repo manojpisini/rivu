@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,5 +153,30 @@ func TestSyncCreatesMissingProjectToml(t *testing.T) {
 	}
 	if doc["rivu"]["slug"] != "fresh" || doc["rivu"]["git_init_owner"] != "rivu" {
 		t.Errorf("unexpected content: %v", doc["rivu"])
+	}
+}
+
+func TestBuildAndSyncCoverDefaultBranches(t *testing.T) {
+	p := registry.Project{ID: "2", Name: "Defaults", Slug: "defaults", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source"}
+	if err := Build(p, ""); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `git_init_owner = "rivu"`) {
+		t.Errorf("empty owner must fall back to rivu:\n%s", b)
+	}
+	if !strings.Contains(string(b), "created_at = \"") {
+		t.Errorf("zero created_at must be filled:\n%s", b)
+	}
+
+	// Sync refuses to clobber an unparseable machine-owned file.
+	if err := os.WriteFile(filepath.Join(p.Path, ".metadata", "project.toml"), []byte("[rivu"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Sync(p, "rivu"); err == nil {
+		t.Fatal("Sync on malformed project.toml must fail")
 	}
 }

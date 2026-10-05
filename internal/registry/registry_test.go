@@ -789,3 +789,97 @@ func TestUpsertKeepsStableSlugWhenRescanningSamePath(t *testing.T) {
 		t.Fatalf("rescan changed stable slug: got %q", projects[0].Slug)
 	}
 }
+
+func TestApplyFlowRecordsMoveAndActivity(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "id-flow", Name: "p", Slug: "p", Path: "/old", Channel: "00_Source", FlowStage: "source", CreatedAt: time.Now(), OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ApplyFlow("id-flow", "/new", "01_Active", "active", true, false); err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.Find("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Path != canonical("/new") || p.Channel != "01_Active" || p.FlowStage != "active" || !p.HasBank || p.HasMap {
+		t.Errorf("apply flow state wrong: %+v", p)
+	}
+	var events int
+	if err := r.DB.QueryRow(`SELECT count(*) FROM activity_log WHERE project_id=? AND event='flowed'`, "id-flow").Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Errorf("flowed activity rows = %d, want 1", events)
+	}
+	if err := r.ApplyFlow("ghost", "/x", "01_Active", "active", false, false); err == nil {
+		t.Error("apply flow for a missing project should fail")
+	}
+}
+
+func TestUpdateFlagsAndMarkMissing(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "id-flags", Name: "p", Slug: "p", Path: "/f", Channel: "00_Source", FlowStage: "source", CreatedAt: time.Now(), OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.UpdateFlags("id-flags", true, false); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := r.Find("p")
+	if !p.HasBank || p.HasMap {
+		t.Errorf("flags after UpdateFlags(true,false): %+v", p)
+	}
+	if err := r.UpdateFlags("id-flags", false, true); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = r.Find("p")
+	if p.HasBank || !p.HasMap {
+		t.Errorf("flags after UpdateFlags(false,true): %+v", p)
+	}
+	if err := r.MarkMissing("id-flags"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = r.Find("p")
+	if p.OnDisk {
+		t.Error("MarkMissing must set on_disk=0")
+	}
+	if err := r.MarkMissing("ghost"); err != nil {
+		t.Errorf("MarkMissing on unknown id: %v", err)
+	}
+}
+
+func TestSlugOrPathTaken(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "id-taken", Name: "p", Slug: "taken", Path: "/ws/taken", Channel: "00_Source", FlowStage: "source", CreatedAt: time.Now(), OnDisk: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		slug, path string
+		want       bool
+	}{
+		{"taken", "/ws/other", true},
+		{"other", "/ws/taken", true},
+		{"other", filepath.Join("/ws", "..", "ws", "taken"), true},
+		{"other", "/ws/free", false},
+	} {
+		got, err := r.SlugOrPathTaken(tc.slug, tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("SlugOrPathTaken(%q, %q) = %v, want %v", tc.slug, tc.path, got, tc.want)
+		}
+	}
+}
