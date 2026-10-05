@@ -51,12 +51,15 @@ func (a *App) Scan() ([]registry.Project, error) {
 		return nil, e
 	}
 	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
-	ps, e := s.Scan(a.Config.Workspace.Root)
+	ps, scanWarns, e := s.Scan(a.Config.Workspace.Root)
 	if e != nil {
 		return nil, e
 	}
 	warns, e := a.Registry.ApplyDiscovery(ps)
 	a.ScanWarnings = nil
+	for _, w := range scanWarns {
+		a.ScanWarnings = append(a.ScanWarnings, w.Error())
+	}
 	for _, w := range warns {
 		a.ScanWarnings = append(a.ScanWarnings, w.Error())
 	}

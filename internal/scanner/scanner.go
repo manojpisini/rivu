@@ -1,7 +1,7 @@
 package scanner
 
 import (
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,11 +63,24 @@ func classify(path string) (string, []string, bool) {
 	}
 	return lang, stack, strong
 }
-func (s *Scanner) Scan(root string) ([]registry.Project, error) {
+
+// Scan walks root and returns discovered projects. A missing or non-directory
+// root is an error; per-entry failures (permission denied, vanished files)
+// are collected as warnings so one bad folder never aborts the scan.
+func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 	var out []registry.Project
+	var warnings []error
 	root = filepath.Clean(root)
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot scan workspace root: %w", err)
+	}
+	if !fi.IsDir() {
+		return nil, nil, fmt.Errorf("workspace root %s is not a directory", root)
+	}
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			warnings = append(warnings, fmt.Errorf("skipped %s: %w", path, err))
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -98,6 +111,8 @@ func (s *Scanner) Scan(root string) ([]registry.Project, error) {
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, warnings, err
+	}
+	return out, warnings, nil
 }
-func StackJSON(v []string) string { b, _ := json.Marshal(v); return string(b) }
