@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/manojpisini/rivu/internal/registry"
 )
 
 func TestScanDetectsGoProject(t *testing.T) {
@@ -145,6 +147,92 @@ func TestScanHonorsRivuignore(t *testing.T) {
 			names = append(names, p.Path)
 		}
 		t.Errorf(".rivuignore not honored, discovered: %v", names)
+	}
+}
+
+func TestScanMaxDepth(t *testing.T) {
+	root := t.TempDir()
+	shallow := filepath.Join(root, "01_Active", "one")
+	deep := filepath.Join(root, "01_Active", "two", "three")
+	for _, d := range []string{shallow, deep} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// depth of one = channel folders only, two = projects inside them.
+	got, _, err := New(nil, 1).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("depth 1 must not reach projects, found %d", len(got))
+	}
+	got, _, err = New(nil, 2).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "one" {
+		t.Errorf("depth 2 should find only the shallow project, got %#v", got)
+	}
+}
+
+func TestScanHonorsConfigIgnore(t *testing.T) {
+	root := t.TempDir()
+	d := filepath.Join(root, "scratch")
+	if err := os.MkdirAll(d, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := New([]string{"scratch"}, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("config ignore names must be skipped, found %#v", got)
+	}
+}
+
+func TestScanDupSlugDisambiguated(t *testing.T) {
+	root := t.TempDir()
+	for _, ch := range []string{"00_Source", "01_Active"} {
+		d := filepath.Join(root, ch, "demo")
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module demo"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(got))
+	}
+	r, err := registry.Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if warns, err := r.ApplyDiscovery(got); err != nil || len(warns) != 0 {
+		t.Fatalf("ApplyDiscovery: warns=%v err=%v", warns, err)
+	}
+	list, err := r.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slugs := map[string]bool{}
+	for _, p := range list {
+		slugs[p.Slug] = true
+	}
+	if !slugs["demo"] || !slugs["demo-2"] {
+		t.Errorf("duplicate folder names must get unique slugs, got %v", slugs)
 	}
 }
 
