@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 )
@@ -28,6 +29,8 @@ func ExitCode(err error, ran bool) int {
 	case !ran:
 		return 2
 	case errors.Is(err, registry.ErrNotFound), errors.Is(err, registry.ErrAmbiguous):
+		return 3
+	case errors.Is(err, config.ErrNotFound):
 		return 3
 	case errors.Is(err, ErrNeedsConfirm):
 		return 4
