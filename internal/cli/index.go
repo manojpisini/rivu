@@ -44,7 +44,7 @@ with warnings exits 5.`,
 				return err
 			}
 			for _, w := range res.Scan.Warnings {
-				fmt.Fprintln(os.Stderr, "warning: "+w)
+				warnf("%s", w)
 			}
 			for _, f := range res.Failures {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", f.Query, f.Err)

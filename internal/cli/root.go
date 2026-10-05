@@ -8,7 +8,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/service"
+	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +39,15 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	var home, cfgFile string
 	r.PersistentFlags().StringVar(&home, "home", "", "set Rivu home directory (overrides RIVU_HOME)")
 	r.PersistentFlags().StringVar(&cfgFile, "config", "", "set config file path (overrides RIVU_CONFIG)")
-	r.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+	r.PersistentFlags().Bool("json", false, "output JSON where supported (schema 1)")
+	r.PersistentFlags().Bool("no-color", false, "disable ANSI colour output (same as NO_COLOR)")
+	verbose := new(bool)
+	r.PersistentFlags().BoolVarP(verbose, "verbose", "v", false, "print config and root diagnostics to stderr")
+	quiet := new(bool)
+	r.PersistentFlags().BoolVarP(quiet, "quiet", "q", false, "suppress warning notes on stderr (exit codes still report them)")
+	r.PersistentFlags().BoolP("yes", "y", false, "skip confirmation prompts (Plan → confirm → Apply)")
+	r.PersistentFlags().Bool("dry-run", false, "preview changes without writing")
+	r.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		// Marks that validation passed: failures before this point are
 		// usage errors (exit 2), after it they are real errors (exit 1+).
 		*ran = true
@@ -49,6 +60,19 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 			if err := os.Setenv("RIVU_CONFIG", cfgFile); err != nil {
 				return fmt.Errorf("apply --config: %w", err)
 			}
+		}
+		if flagBool(cmd, "no-color") {
+			lipgloss.SetColorProfile(termenv.Ascii)
+		}
+		// warnf has no cmd handle (it runs inside withApp closures), so
+		// -q travels through the environment. Set or cleared every run,
+		// keeping in-process invocations deterministic.
+		if flagBool(cmd, "quiet") {
+			if err := os.Setenv("RIVU_QUIET", "1"); err != nil {
+				return fmt.Errorf("apply --quiet: %w", err)
+			}
+		} else {
+			os.Unsetenv("RIVU_QUIET")
 		}
 		return nil
 	}
@@ -100,18 +124,44 @@ func enumFlag(name string, allowed ...string) cobra.PositionalArgs {
 	}
 }
 
+// flagBool reads a bool flag from the command being run. cmd.Flags()
+// holds the command's own flags plus the root's persistent flags after
+// parsing, so one call covers both local and global positions
+// (rivu --json list and rivu list --json).
+func flagBool(cmd *cobra.Command, name string) bool {
+	v, err := cmd.Flags().GetBool(name)
+	return err == nil && v
+}
+
+// warnf prints a warning to stderr unless -q is set. Warnings still
+// surface through exit code 5, so scripts stay correct in quiet mode.
+func warnf(format string, a ...any) {
+	if os.Getenv("RIVU_QUIET") != "" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "warning: "+format+"\n", a...)
+}
+
 // withApp opens the service, prints config warnings to stderr, runs fn
 // with the command's positional args, and closes the app. No globals —
 // every command reads its args from here (X-01).
 func withApp(fn func(*service.App, []string) error) func(*cobra.Command, []string) error {
-	return func(_ *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
 		a, e := service.Open()
 		if e != nil {
 			return e
 		}
 		defer a.Close()
+		if flagBool(cmd, "verbose") {
+			p, err := config.Path()
+			if err != nil {
+				p = "(not created yet)"
+			}
+			fmt.Fprintf(os.Stderr, "rivu: config %s\n", p)
+			fmt.Fprintf(os.Stderr, "rivu: root %s\n", a.Config.Workspace.Root)
+		}
 		for _, w := range a.ConfigWarnings {
-			fmt.Fprintln(os.Stderr, "warning: "+w)
+			warnf("%s", w)
 		}
 		if err := fn(a, args); err != nil {
 			return err

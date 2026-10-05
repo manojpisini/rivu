@@ -48,7 +48,7 @@ editor afterwards, honouring --editor.`,
 				fmt.Printf("Sourced %s [%s] at %s\n", sr.Project.Name, sr.Project.FlowStage, sr.Project.Path)
 			}
 			for _, w := range sr.Warnings {
-				fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+				warnf("%s", w)
 			}
 			if open && !dry {
 				return a.OpenProject(sr.Project.Slug, editor)

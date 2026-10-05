@@ -46,7 +46,7 @@ that folder for this run without changing the config. --json prints
 				return e
 			}
 			for _, w := range res.Warnings {
-				fmt.Fprintln(os.Stderr, "warning: "+w)
+				warnf("%s", w)
 			}
 			st, e := a.Registry.States()
 			if e != nil {

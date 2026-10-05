@@ -37,7 +37,7 @@ func configCmd() *cobra.Command {
 func loadConfig() (config.Config, error) {
 	cfg, warns, err := config.Load()
 	for _, w := range warns {
-		fmt.Fprintln(os.Stderr, "warning: "+w)
+		warnf("%s", w)
 	}
 	return cfg, err
 }
@@ -173,7 +173,7 @@ Exit codes: 0 valid, 1 problems, 5 only warnings (unknown keys).`,
 				return err
 			}
 			for _, w := range warns {
-				fmt.Fprintln(os.Stderr, "warning: "+w)
+				warnf("%s", w)
 			}
 			var problems []error
 			if err := config.Validate(cfg); err != nil {

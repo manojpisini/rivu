@@ -29,6 +29,27 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
+// captureStderr returns everything fn writes to the process stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+	fn()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func TestPathCommand(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
