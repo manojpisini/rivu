@@ -119,3 +119,39 @@ func TestFooterHelpAndStatus(t *testing.T) {
 		t.Errorf("status footer = %q, want status text", got)
 	}
 }
+
+// TestFooterContextHints: the hint set follows the active context but
+// always renders bindings from the single keyMap table.
+func TestFooterContextHints(t *testing.T) {
+	m := testModel(t)
+	if hints := m.footerHints(); len(hints) == 0 {
+		t.Fatal("normal context must offer hints")
+	}
+	normal := m.footer()
+	for _, want := range []string{"switch panel", "search", "quit"} {
+		if !strings.Contains(normal, want) {
+			t.Errorf("normal footer missing %q: %s", want, normal)
+		}
+	}
+
+	m = update(t, m, runeKey("/"))
+	if !m.Searching {
+		t.Fatal("/ must enter search")
+	}
+	search := m.footer()
+	for _, want := range []string{"done", "cancel", "quit"} {
+		if !strings.Contains(search, want) {
+			t.Errorf("search footer missing %q: %s", want, search)
+		}
+	}
+	for _, hint := range []string{"switch panel", "clear filter"} {
+		if strings.Contains(search, hint) {
+			t.Errorf("search footer must not show %q: %s", hint, search)
+		}
+	}
+	for _, b := range m.footerHints() {
+		if b.Help().Key == "" || b.Help().Desc == "" {
+			t.Errorf("context binding missing help text: %+v", b.Help())
+		}
+	}
+}

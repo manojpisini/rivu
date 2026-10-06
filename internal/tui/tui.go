@@ -385,7 +385,16 @@ func (m Model) footer() string {
 	if m.Status != "" {
 		return mutedStyle.Render(shorten(m.Status, max(1, m.Width)))
 	}
-	return mutedStyle.Render(shorten(m.help.View(keys), max(1, m.Width)))
+	return mutedStyle.Render(shorten(m.help.ShortHelpView(m.footerHints()), max(1, m.Width)))
+}
+
+// footerHints picks the context key set; every binding comes from the
+// single keyMap table so hints and handlers cannot drift.
+func (m Model) footerHints() []key.Binding {
+	if m.Searching {
+		return []key.Binding{keys.SearchDone, keys.SearchCancel, keys.Quit}
+	}
+	return keys.ShortHelp()
 }
 
 func (m Model) metrics() (map[string]int, int) {
