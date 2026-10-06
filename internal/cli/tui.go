@@ -15,12 +15,8 @@ func tuiCmd() *cobra.Command {
 	})}
 }
 
-// launchTUI starts the terminal interface over the current project list;
-// shared by the root command and `rivu tui`.
+// launchTUI starts the terminal interface over the shared service
+// layer; used by the root command and `rivu tui`.
 func launchTUI(a *service.App) error {
-	ps, e := a.List(service.Filter{})
-	if e != nil {
-		return e
-	}
-	return tui.Run(ps, a.Config.Workspace.Root)
+	return tui.Run(a, a.Config)
 }

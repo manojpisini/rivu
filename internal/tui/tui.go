@@ -411,8 +411,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-
-func Run(ps []registry.Project, workspaceRoot string) error {
-	_, err := tea.NewProgram(New(ps, workspaceRoot), tea.WithAltScreen()).Run()
-	return err
-}
