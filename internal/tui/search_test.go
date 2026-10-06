@@ -62,7 +62,7 @@ func TestFieldQuerySyntax(t *testing.T) {
 func TestSearchTextInputFlow(t *testing.T) {
 	m := searchFixture()
 	m = update(t, m, runeKey("/"))
-	if !m.Searching {
+	if !m.search.Focused() {
 		t.Fatal("/ must open search")
 	}
 	for _, r := range "slug:riv" {
@@ -75,7 +75,7 @@ func TestSearchTextInputFlow(t *testing.T) {
 		t.Fatalf("visible = %+v, want only Rivu", m.Visible)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Searching {
+	if m.search.Focused() {
 		t.Fatal("enter must leave search mode")
 	}
 	if len(m.Visible) != 1 {

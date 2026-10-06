@@ -80,10 +80,10 @@ func TestNavigationKeysDriveHandlers(t *testing.T) {
 		t.Error("tab must switch panel")
 	}
 	m = update(t, m, runeKey("/"))
-	if !m.Searching {
+	if !m.search.Focused() {
 		t.Error("/ must enter search")
 	}
-	m.Searching = false
+	m.search.Blur()
 	m = update(t, m, runeKey("j"))
 	if m.Cursor != 1 {
 		t.Errorf("j cursor = %d, want 1", m.Cursor)
@@ -136,14 +136,17 @@ func TestFooterContextHints(t *testing.T) {
 	}
 
 	m = update(t, m, runeKey("/"))
-	if !m.Searching {
+	if !m.search.Focused() {
 		t.Fatal("/ must enter search")
 	}
 	search := m.footer()
-	for _, want := range []string{"done", "cancel", "quit"} {
+	for _, want := range []string{"done", "cancel"} {
 		if !strings.Contains(search, want) {
 			t.Errorf("search footer missing %q: %s", want, search)
 		}
+	}
+	if strings.Contains(search, "quit") {
+		t.Errorf("global quit must not be offered while the input is focused: %s", search)
 	}
 	for _, hint := range []string{"switch panel", "clear filter"} {
 		if strings.Contains(search, hint) {

@@ -27,7 +27,6 @@ type Model struct {
 	Cursor        int
 	FlowCursor    int
 	FocusSidebar  bool
-	Searching     bool
 	Query         string
 	Width         int
 	Height        int
@@ -56,16 +55,18 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch x := msg.(type) {
 	case tea.KeyMsg:
-		if m.Searching {
+		// A focused textinput owns every key except esc/enter (its own
+		// confirm/cancel) and ctrl+c, which must always quit (spec 3.9).
+		if m.search.Focused() {
 			switch x.String() {
+			case "ctrl+c":
+				return m, tea.Quit
 			case "esc":
-				m.Searching = false
 				m.Query = ""
 				m.search.SetValue("")
 				m.search.Blur()
 				m.applyFilter()
 			case "enter":
-				m.Searching = false
 				m.search.Blur()
 			default:
 				in, cmd := m.search.Update(msg)
@@ -111,7 +112,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.FocusSidebar = !m.FocusSidebar
 			}
 		case key.Matches(x, keys.Search):
-			m.Searching = true
 			m.FocusSidebar = false
 			m.search.SetValue(m.Query)
 			m.search.Focus()
@@ -457,7 +457,7 @@ func (m Model) projectPanel(width, height int) string {
 
 	flow := strings.ToUpper(flowOrder[m.FlowCursor])
 	query := ""
-	if m.Searching {
+	if m.search.Focused() {
 		query = "  " + m.search.View()
 	} else if m.Query != "" {
 		query = "  " + mutedStyle.Render("filter: "+m.Query)
@@ -623,10 +623,12 @@ func (m Model) footer() string {
 }
 
 // footerHints picks the context key set; every binding comes from the
-// single keyMap table so hints and handlers cannot drift.
+// single keyMap table so hints and handlers cannot drift. While a
+// textinput is focused the global bindings do not apply, so they are
+// not offered (P3.14).
 func (m Model) footerHints() []key.Binding {
-	if m.Searching {
-		return []key.Binding{keys.SearchDone, keys.SearchCancel, keys.Quit}
+	if m.search.Focused() {
+		return []key.Binding{keys.SearchDone, keys.SearchCancel}
 	}
 	return keys.ShortHelp()
 }
