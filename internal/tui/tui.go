@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -35,11 +36,17 @@ type Model struct {
 	Current       registry.Project
 	HasCurrent    bool
 	DetailFull    bool
+	search        textinput.Model
 	help          help.Model
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
 	m := Model{Projects: ps, WorkspaceRoot: workspaceRoot, FocusSidebar: true, help: help.New()}
+	m.search = textinput.New()
+	m.search.Prompt = "SEARCH: "
+	m.search.Width = 32
+	m.search.PromptStyle = selectedStyle
+	m.search.TextStyle = valueStyle
 	m.applyFilter()
 	return m
 }
@@ -54,20 +61,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.Searching = false
 				m.Query = ""
+				m.search.SetValue("")
+				m.search.Blur()
 				m.applyFilter()
 			case "enter":
 				m.Searching = false
-			case "backspace":
-				if len(m.Query) > 0 {
-					_, n := utf8.DecodeLastRuneInString(m.Query)
-					m.Query = m.Query[:len(m.Query)-n]
-					m.applyFilter()
-				}
+				m.search.Blur()
 			default:
-				if len(x.Runes) > 0 {
-					m.Query += string(x.Runes)
-					m.applyFilter()
-				}
+				in, cmd := m.search.Update(msg)
+				m.search = in
+				m.Query = m.search.Value()
+				m.applyFilter()
+				return m, cmd
 			}
 			return m, nil
 		}
@@ -108,8 +113,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(x, keys.Search):
 			m.Searching = true
 			m.FocusSidebar = false
+			m.search.SetValue(m.Query)
+			m.search.Focus()
 		case key.Matches(x, keys.Clear):
 			m.Query = ""
+			m.search.SetValue("")
 			m.applyFilter()
 		case key.Matches(x, keys.Up):
 			if m.FocusSidebar {
@@ -181,14 +189,16 @@ func (m *Model) stepStage(delta int) {
 
 func (m *Model) applyFilter() {
 	flow := flowOrder[m.FlowCursor]
-	query := strings.ToLower(strings.TrimSpace(m.Query))
+	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(m.Query)))
 	m.Visible = m.Visible[:0]
 	for _, p := range m.Projects {
 		if flow != allFlow && p.FlowStage != flow {
 			continue
 		}
-		haystack := strings.ToLower(strings.Join([]string{p.Name, p.Slug, p.Path, p.Language, p.FlowStage}, " "))
-		if query != "" && !strings.Contains(haystack, query) {
+		haystack := strings.ToLower(strings.Join([]string{
+			p.Name, p.Slug, p.Path, p.Language, p.FlowStage, strings.Join(p.Stack, " "),
+		}, " "))
+		if !matchesQuery(p, tokens, haystack) {
 			continue
 		}
 		m.Visible = append(m.Visible, p)
@@ -204,6 +214,44 @@ func (m *Model) applyFilter() {
 	} else if m.Cursor >= len(m.Visible) {
 		m.Cursor = len(m.Visible) - 1
 	}
+}
+
+// matchesQuery applies every whitespace token (AND): `field:value`
+// restricts the named field (name/slug/path/stack/lang), any other
+// token is a substring of the full haystack.
+func matchesQuery(p registry.Project, tokens []string, haystack string) bool {
+	for _, tok := range tokens {
+		if field, value, ok := strings.Cut(tok, ":"); ok {
+			if v, ok := searchField(p, field); ok {
+				if !strings.Contains(strings.ToLower(v), value) {
+					return false
+				}
+				continue
+			}
+		}
+		if !strings.Contains(haystack, tok) {
+			return false
+		}
+	}
+	return true
+}
+
+// searchField resolves a `field:value` prefix; ok is false for
+// unknown fields, which then fall back to plain-text matching.
+func searchField(p registry.Project, field string) (string, bool) {
+	switch field {
+	case "name":
+		return p.Name, true
+	case "slug":
+		return p.Slug, true
+	case "path":
+		return p.Path, true
+	case "stack":
+		return strings.Join(p.Stack, " "), true
+	case "lang":
+		return p.Language, true
+	}
+	return "", false
 }
 
 func (m Model) selectedProject() (registry.Project, bool) {
@@ -410,7 +458,7 @@ func (m Model) projectPanel(width, height int) string {
 	flow := strings.ToUpper(flowOrder[m.FlowCursor])
 	query := ""
 	if m.Searching {
-		query = "  " + selectedStyle.Render("SEARCH: "+m.Query+"█")
+		query = "  " + m.search.View()
 	} else if m.Query != "" {
 		query = "  " + mutedStyle.Render("filter: "+m.Query)
 	}
