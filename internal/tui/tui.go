@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/style"
 )
 
 const allFlow = "all"
@@ -156,21 +157,18 @@ func (m Model) selectedProject() (registry.Project, bool) {
 	return m.Visible[m.Cursor], true
 }
 
-var (
-	accent      = lipgloss.Color("99")
-	accent2     = lipgloss.Color("213")
-	text        = lipgloss.Color("252")
-	muted       = lipgloss.Color("243")
-	panelBorder = lipgloss.Color("238")
+var theme = style.GraphiteViolet
 
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	subtitleStyle = lipgloss.NewStyle().Foreground(muted)
-	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(panelBorder).Padding(0, 1)
-	focusStyle    = panelStyle.Copy().BorderForeground(accent)
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(accent2)
-	mutedStyle    = lipgloss.NewStyle().Foreground(muted)
-	valueStyle    = lipgloss.NewStyle().Foreground(text)
-	badgeStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent2)
+var (
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
+	subtitleStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Border).Foreground(theme.Text).Background(theme.Panel).Padding(0, style.Pad)
+	focusStyle    = panelStyle.Copy().BorderForeground(theme.Accent)
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
+	mutedStyle    = lipgloss.NewStyle().Foreground(theme.Muted)
+	valueStyle    = lipgloss.NewStyle().Foreground(theme.Text)
+	badgeStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
+	bgStyle       = lipgloss.NewStyle().Background(theme.Bg)
 )
 
 func (m Model) View() string {
@@ -198,7 +196,7 @@ func (m Model) View() string {
 		row = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", projects, " ", details)
 	}
 
-	return header + "\n" + row + "\n" + footer
+	return bgStyle.Width(m.Width).Render(header + "\n" + row + "\n" + footer)
 }
 
 func (m Model) header() string {
