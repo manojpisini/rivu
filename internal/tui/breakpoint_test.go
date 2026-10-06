@@ -27,9 +27,11 @@ func TestBreakpoints(t *testing.T) {
 		{80, 14, true, false, false, false}, // short
 		{60, 15, false, false, true, false}, // single, boundary
 		{99, 30, false, false, true, false}, // single, top
-		{100, 30, false, false, true, true}, // two panes, boundary
-		{139, 40, false, false, true, true}, // two panes, top
-		{140, 45, false, true, true, true},  // three panes, boundary
+		{100, 30, false, true, true, false}, // two panes: sidebar + list
+		{119, 40, false, true, true, false}, // two panes, top
+		{120, 40, false, true, true, true},  // side detail appears (P3.12)
+		{139, 40, false, true, true, true},  // side detail
+		{140, 45, false, true, true, true},  // three panes
 		{200, 50, false, true, true, true},  // three panes
 	}
 	for _, c := range cases {

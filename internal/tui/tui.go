@@ -34,6 +34,7 @@ type Model struct {
 	Status        string
 	Current       registry.Project
 	HasCurrent    bool
+	DetailFull    bool
 	help          help.Model
 }
 
@@ -71,9 +72,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Full-screen detail: esc/q/d go back, ctrl+c still quits.
+		if m.DetailFull {
+			switch x.String() {
+			case "esc", "q", "d":
+				m.DetailFull = false
+				return m, nil
+			}
+		}
+
 		switch {
 		case key.Matches(x, keys.Quit):
 			return m, tea.Quit
+		case key.Matches(x, keys.Detail):
+			if _, ok := m.selectedProject(); ok {
+				m.DetailFull = true
+			} else {
+				m.Status = "Select a project to view its details"
+			}
 		case key.Matches(x, keys.StageDigit):
 			if s := x.String(); len(s) == 1 && s[0] >= '1' && s[0] <= '5' {
 				m.setStage(int(s[0] - '0'))
@@ -218,6 +234,11 @@ func (m Model) View() string {
 	if m.Width < 60 || m.Height < 15 {
 		return tooSmall(m.Width, m.Height)
 	}
+	if m.DetailFull {
+		if _, ok := m.selectedProject(); ok {
+			return m.detailFullView()
+		}
+	}
 
 	header := m.header()
 	footer := m.footer()
@@ -227,13 +248,12 @@ func (m Model) View() string {
 	switch {
 	case m.Width < 100: // single pane: project list only
 		row = m.projectPanel(m.Width-2, bodyHeight)
-	case m.Width < 140: // two panes: list + detail
-		rightWidth := clamp(m.Width/3, 30, 44)
-		centerWidth := m.Width - rightWidth - 3
+	case m.Width < 120: // two panes: sidebar + list (spec 3.2)
+		sidebarWidth := clamp(m.Width/5, 20, 28)
 		row = lipgloss.JoinHorizontal(lipgloss.Top,
-			m.projectPanel(centerWidth, bodyHeight), " ",
-			m.detailsPanel(rightWidth, bodyHeight))
-	default: // three panes: sidebar + list + detail
+			m.sidebar(sidebarWidth, bodyHeight), " ",
+			m.projectPanel(m.Width-sidebarWidth-3, bodyHeight))
+	default: // side detail at >=120 (P3.12): sidebar + list + detail
 		sidebarWidth := clamp(m.Width/5, 20, 28)
 		rightWidth := clamp(m.Width/3, 34, 52)
 		centerWidth := m.Width - sidebarWidth - rightWidth - 4
@@ -487,34 +507,64 @@ func (m Model) projectPanel(width, height int) string {
 	return style.Width(width - 2).Height(height - 2).Render(b.String())
 }
 
+// detailsPanel is the side detail pane (>=120 cols).
 func (m Model) detailsPanel(width, height int) string {
 	p, ok := m.selectedProject()
 	if !ok {
 		return panelStyle.Width(width - 2).Height(height - 2).Render(titleStyle.Render("PROJECT DETAILS") + "\n\n" + mutedStyle.Render("Select a project to inspect it."))
 	}
-	status := func(v bool) string {
-		if v {
-			return "✓ ready"
-		}
-		return "○ missing"
-	}
+	body := titleStyle.Render("PROJECT DETAILS") + "\n\n" + m.detailBody(p, width-4)
+	return panelStyle.Width(width - 2).Height(height - 2).Render(body)
+}
+
+// detailFullView is the full-screen detail route (spec 3.4), used when
+// the terminal is narrower than the 120-col side layout or on `d`.
+func (m Model) detailFullView() string {
+	p, _ := m.selectedProject()
+	body := m.detailBody(p, min(m.Width-8, 76))
+	actions := mutedStyle.Render("[enter] open  [h] doctor  [m] build map  [r] rescan  [d/esc] back")
+	box := panelStyle.Render(body + "\n" + actions)
+	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
+}
+
+// detailBody renders the spec 3.4 fields plus health checks with
+// remedies; used by both the side pane and the full-screen view.
+func (m Model) detailBody(p registry.Project, width int) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("PROJECT DETAILS") + "\n\n")
 	b.WriteString(selectedStyle.Render(p.Name) + "\n")
 	b.WriteString(mutedStyle.Render(p.Slug) + "\n\n")
-	b.WriteString(labelValue("Flow", p.FlowStage) + "\n")
-	b.WriteString(labelValue("Channel", p.Channel) + "\n")
-	b.WriteString(labelValue("Language", fallback(p.Language, "Unknown")) + "\n")
-	b.WriteString(labelValue("Health", fmt.Sprintf("%d/100", p.HealthScore)) + "\n\n")
-	b.WriteString(titleStyle.Render("CAPABILITIES") + "\n")
-	b.WriteString(labelValue("Git", status(p.HasGit)) + "\n")
-	b.WriteString(labelValue("Bank", status(p.HasBank)) + "\n")
-	b.WriteString(labelValue("Agent Map", status(p.HasMap)) + "\n\n")
-	b.WriteString(titleStyle.Render("LOCATION") + "\n")
-	b.WriteString(mutedStyle.Render(wrapPath(p.Path, width-4)) + "\n\n")
-	b.WriteString(titleStyle.Render("COMMANDS") + "\n")
-	b.WriteString(mutedStyle.Render("o/enter  open\nd        doctor\nm        rebuild map"))
-	return panelStyle.Width(width - 2).Height(height - 2).Render(b.String())
+	b.WriteString(labelValue("Channel", fallback(p.Channel, "—")) + "\n")
+	b.WriteString(labelValue("Flow", stageBadge(p.FlowStage)) + "\n")
+	b.WriteString(labelValue("Stack", fallback(strings.Join(p.Stack, " › "), "—")) + "\n")
+	b.WriteString(labelValue("Git", gitBadge(p.HasGit)) + "\n")
+	b.WriteString(labelValue("Bank", bankBadge(p.HasBank)) + "\n")
+	b.WriteString(labelValue("Map", mapBadge(p.HasMap)) + "\n")
+	b.WriteString(labelValue("Health", healthBadge(p.HealthScore)) + "\n\n")
+	b.WriteString(titleStyle.Render("HEALTH CHECKS") + "\n")
+	for _, line := range detailChecks(p) {
+		b.WriteString(shorten(line, width) + "\n")
+	}
+	return b.String()
+}
+
+// detailChecks lists ✓/! lines with remedies; only stored registry
+// flags are used, so no I/O happens here (the real audit is
+// `rivu doctor`, P3.19).
+func detailChecks(p registry.Project) []string {
+	var out []string
+	check := func(ok bool, good, bad string) {
+		if ok {
+			out = append(out, badgeGood.Render("✓ "+good))
+		} else {
+			out = append(out, badgeWarn.Render("! "+bad))
+		}
+	}
+	check(p.HasGit, "Git initialized", "Git missing — run `git init` in the project folder")
+	check(p.HasBank, "Bank present", "Bank missing — run `rivu doctor "+p.Slug+"` to audit")
+	check(p.HasMap, "Map built", "Map missing — run `rivu agent sync "+p.Slug+"`")
+	check(p.HealthScore >= 70, fmt.Sprintf("Health %d/100", p.HealthScore),
+		fmt.Sprintf("Health %d/100 is low — run `rivu doctor %s`", p.HealthScore, p.Slug))
+	return out
 }
 
 func (m Model) footer() string {
