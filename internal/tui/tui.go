@@ -377,6 +377,16 @@ func padStartCell(s string, w int) string {
 
 func (m Model) projectPanel(width, height int) string {
 	var b strings.Builder
+	inner := width - 4
+
+	// Virtualised window: only the rows around the cursor render.
+	available := max(1, height-6)
+	start := 0
+	if m.Cursor >= available {
+		start = m.Cursor - available + 1
+	}
+	end := min(len(m.Visible), start+available)
+
 	flow := strings.ToUpper(flowOrder[m.FlowCursor])
 	query := ""
 	if m.Searching {
@@ -384,9 +394,22 @@ func (m Model) projectPanel(width, height int) string {
 	} else if m.Query != "" {
 		query = "  " + mutedStyle.Render("filter: "+m.Query)
 	}
-	b.WriteString(titleStyle.Render(flow+" PROJECTS") + query + "\n")
+	// Right side of the title: n/N position plus up/down indicators.
+	right := ""
+	if start > 0 {
+		right += mutedStyle.Render(fmt.Sprintf("↑%d ", start))
+	}
+	pos := "0/0"
+	if len(m.Visible) > 0 {
+		pos = fmt.Sprintf("%d/%d", min(m.Cursor, len(m.Visible)-1)+1, len(m.Visible))
+	}
+	right += mutedStyle.Render(pos)
+	if end < len(m.Visible) {
+		right += mutedStyle.Render(fmt.Sprintf(" ↓%d", len(m.Visible)-end))
+	}
+	gap := max(1, inner-lipgloss.Width(flow+" PROJECTS"+query)-lipgloss.Width(right))
+	b.WriteString(titleStyle.Render(flow+" PROJECTS") + query + strings.Repeat(" ", gap) + right + "\n")
 
-	inner := width - 4
 	cols := columnsFor(inner)
 	const (
 		markerW = 2
@@ -428,13 +451,6 @@ func (m Model) projectPanel(width, height int) string {
 	b.WriteString(mutedStyle.Render(header) + "\n")
 	b.WriteString(mutedStyle.Render(strings.Repeat("─", max(1, inner))) + "\n")
 
-	// Virtualised rows: only the window around the cursor is rendered.
-	available := max(1, height-6)
-	start := 0
-	if m.Cursor >= available {
-		start = m.Cursor - available + 1
-	}
-	end := min(len(m.Visible), start+available)
 	for i := start; i < end; i++ {
 		p := m.Visible[i]
 		marker := "  "
