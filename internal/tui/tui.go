@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/manojpisini/rivu/internal/registry"
@@ -28,10 +30,11 @@ type Model struct {
 	Height        int
 	WorkspaceRoot string
 	Status        string
+	help          help.Model
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
-	m := Model{Projects: ps, WorkspaceRoot: workspaceRoot, FocusSidebar: true}
+	m := Model{Projects: ps, WorkspaceRoot: workspaceRoot, FocusSidebar: true, help: help.New()}
 	m.applyFilter()
 	return m
 }
@@ -64,18 +67,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch x.String() {
-		case "q", "ctrl+c":
+		switch {
+		case key.Matches(x, keys.Quit):
 			return m, tea.Quit
-		case "tab", "left", "h", "right", "l":
+		case key.Matches(x, keys.SwitchPanel):
 			m.FocusSidebar = !m.FocusSidebar
-		case "/":
+		case key.Matches(x, keys.Search):
 			m.Searching = true
 			m.FocusSidebar = false
-		case "esc":
+		case key.Matches(x, keys.Clear):
 			m.Query = ""
 			m.applyFilter()
-		case "up", "k":
+		case key.Matches(x, keys.Up):
 			if m.FocusSidebar {
 				if m.FlowCursor > 0 {
 					m.FlowCursor--
@@ -85,7 +88,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.Cursor > 0 {
 				m.Cursor--
 			}
-		case "down", "j":
+		case key.Matches(x, keys.Down):
 			if m.FocusSidebar {
 				if m.FlowCursor < len(flowOrder)-1 {
 					m.FlowCursor++
@@ -95,23 +98,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.Cursor < len(m.Visible)-1 {
 				m.Cursor++
 			}
-		case "g":
+		case key.Matches(x, keys.Top):
 			m.Cursor = 0
-		case "G":
+		case key.Matches(x, keys.Bottom):
 			if len(m.Visible) > 0 {
 				m.Cursor = len(m.Visible) - 1
 			}
-		case "r":
+		case key.Matches(x, keys.Refresh):
 			m.Status = "Run `rivu scan` to refresh the registry"
-		case "enter", "o":
+		case key.Matches(x, keys.Open):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Open with: rivu open %s", p.Slug)
 			}
-		case "d":
+		case key.Matches(x, keys.Doctor):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Health check: rivu doctor %s", p.Slug)
 			}
-		case "m":
+		case key.Matches(x, keys.Map):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Agent map: rivu agent sync %s", p.Slug)
 			}
@@ -119,6 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = x.Width
 		m.Height = x.Height
+		m.help.Width = x.Width
 	}
 	return m, nil
 }
@@ -322,11 +326,10 @@ func (m Model) detailsPanel(width, height int) string {
 }
 
 func (m Model) footer() string {
-	status := m.Status
-	if status == "" {
-		status = "tab switch panel · j/k navigate · / search · esc clear · q quit"
+	if m.Status != "" {
+		return mutedStyle.Render(shorten(m.Status, max(1, m.Width)))
 	}
-	return mutedStyle.Render(shorten(status, max(1, m.Width)))
+	return mutedStyle.Render(shorten(m.help.View(keys), max(1, m.Width)))
 }
 
 func (m Model) metrics() (map[string]int, int) {
