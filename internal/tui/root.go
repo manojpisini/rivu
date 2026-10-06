@@ -72,11 +72,17 @@ type (
 )
 
 // confirm is one entry in the modal stack: a yes/no question whose
-// default answer is No (esc, enter, n and q all decline).
+// default answer is No (esc, enter, n and q all decline). Lines carries
+// the Plan body the modal renders; up/down scroll it.
 type confirm struct {
-	Title string
-	OnYes func() tea.Cmd
+	Title  string
+	Lines  []string
+	OnYes  func() tea.Cmd
+	scroll int
 }
+
+// confirmVisible is how many Plan lines fit in the modal viewport.
+const confirmVisible = 12
 
 // Root is the Bubble Tea root model (spec 2.10): the router plus the
 // shared state every screen reads — service, config, theme, size,
@@ -249,9 +255,10 @@ func (r Root) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateConfirm handles the top modal; only y accepts, everything else
-// closes it without acting (default No).
+// closes it without acting (default No). up/down scroll the Plan body.
 func (r Root) updateConfirm(msg tea.KeyMsg, c confirm) (tea.Model, tea.Cmd) {
-	pop := func() { r.confirms = r.confirms[:len(r.confirms)-1] }
+	n := len(r.confirms) - 1
+	pop := func() { r.confirms = r.confirms[:n] }
 	switch msg.String() {
 	case "y", "Y":
 		pop()
@@ -261,6 +268,17 @@ func (r Root) updateConfirm(msg tea.KeyMsg, c confirm) (tea.Model, tea.Cmd) {
 		return r, nil
 	case "n", "N", "esc", "enter", "q", "ctrl+c":
 		pop()
+		return r, nil
+	case "up":
+		if r.confirms[n].scroll > 0 {
+			r.confirms[n].scroll--
+		}
+		return r, nil
+	case "down":
+		maxScroll := max(0, len(r.confirms[n].Lines)-confirmVisible)
+		if r.confirms[n].scroll < maxScroll {
+			r.confirms[n].scroll++
+		}
 		return r, nil
 	}
 	return r, nil // swallow every other key while a modal is open
@@ -285,6 +303,50 @@ func (r Root) pushToast(t Toast) (tea.Model, tea.Cmd) {
 // Confirm queues a yes/no modal over the current screen.
 func Confirm(title string, onYes func() tea.Cmd) tea.Cmd {
 	return func() tea.Msg { return confirmMsg{c: confirm{Title: title, OnYes: onYes}} }
+}
+
+// ConfirmPlan queues the same modal with a Plan body (spec 3.5): every
+// line is shown, scrollable with up/down when taller than the viewport,
+// default No.
+func ConfirmPlan(title string, lines []string, onYes func() tea.Cmd) tea.Cmd {
+	return func() tea.Msg { return confirmMsg{c: confirm{Title: title, Lines: lines, OnYes: onYes}} }
+}
+
+// sourcePlanLines flattens a Source plan into the modal's body lines
+// (the same Will create/write/run vocabulary as the CLI dry run).
+func sourcePlanLines(p service.SourcePlan) []string {
+	lines := []string{fmt.Sprintf("Source %s into %s", p.Name, p.Channel)}
+	for _, s := range p.Create {
+		lines = append(lines, "Will create "+s)
+	}
+	for _, s := range p.Write {
+		lines = append(lines, "Will write "+s)
+	}
+	for _, s := range p.Run {
+		lines = append(lines, "Will run "+s)
+	}
+	for _, s := range p.Registry {
+		lines = append(lines, "Registry: "+s)
+	}
+	for _, s := range p.Bank {
+		lines = append(lines, "Bank: "+s)
+	}
+	return lines
+}
+
+// flowPlanLines flattens a Flow plan the same way.
+func flowPlanLines(p service.FlowPlan) []string {
+	lines := []string{fmt.Sprintf("Flow %s: %s -> %s", p.Query, p.FromStage, p.ToStage)}
+	for _, s := range p.Move {
+		lines = append(lines, "Will move "+s)
+	}
+	for _, s := range p.Registry {
+		lines = append(lines, "Registry: "+s)
+	}
+	for _, s := range p.Bank {
+		lines = append(lines, "Bank: "+s)
+	}
+	return lines
 }
 
 // ShowToast queues a transient status line that clears itself.
@@ -364,7 +426,25 @@ func (r Root) toastView(t Toast) string {
 }
 
 func (r Root) confirmView(c confirm) string {
-	body := r.styleTitle.Render(c.Title) + "\n" +
-		r.styleMuted.Render("y yes   n/esc/enter no (default)")
-	return r.styleConfirm.Render(body)
+	var b strings.Builder
+	b.WriteString(r.styleTitle.Render(c.Title))
+	if len(c.Lines) > 0 {
+		start := min(c.scroll, max(0, len(c.Lines)-confirmVisible))
+		end := min(len(c.Lines), start+confirmVisible)
+		for _, ln := range c.Lines[start:end] {
+			if r.width > 0 {
+				ln = shorten(ln, max(1, r.width-6))
+			}
+			b.WriteString("\n" + ln)
+		}
+		if len(c.Lines) > confirmVisible {
+			b.WriteString("\n" + r.styleMuted.Render(fmt.Sprintf("%d-%d of %d", start+1, end, len(c.Lines))))
+		}
+	}
+	hint := "y yes   n/esc/enter no (default)"
+	if len(c.Lines) > confirmVisible {
+		hint += "   ↑↓ scroll"
+	}
+	b.WriteString("\n" + r.styleMuted.Render(hint))
+	return r.styleConfirm.Render(b.String())
 }
