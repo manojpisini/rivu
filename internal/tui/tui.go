@@ -225,9 +225,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Status = "Running health checks…"
 			return m, doctorCmd(m.svc, q)
 		case key.Matches(x, keys.Map):
-			if p, ok := m.selectedProject(); ok {
-				m.Status = fmt.Sprintf("Agent map: rivu agent sync %s", p.Slug)
+			if m.svc == nil {
+				m.Status = "Agent map unavailable: no service in this session"
+				return m, nil
 			}
+			p, ok := m.selectedProject()
+			if !ok {
+				m.Status = "Select a project to build its agent map"
+				return m, nil
+			}
+			m.Status = "Building agent map…"
+			return m, mapCmd(m.svc, p.Slug)
 		}
 	case spinner.TickMsg:
 		if !m.scanning {
@@ -246,10 +254,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, ShowToast(Toast{Level: "bad", Text: "editor for " + x.slug + " failed: " + x.err.Error()})
 		}
 		// Refresh on return: the editor may have touched files or git.
-		return m, func() tea.Msg {
-			ps, err := m.svc.List(service.Filter{})
-			return projectsMsg{ps: ps, err: err}
+		return m, listCmd(m.svc)
+	case mapDoneMsg:
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "agent map failed for " + x.q + ": " + x.err.Error()})
 		}
+		// The map flags changed - refresh the list and confirm.
+		return m, tea.Batch(
+			ShowToast(Toast{Level: "good", Text: "agent map built for " + x.q}),
+			listCmd(m.svc),
+		)
 	case tea.WindowSizeMsg:
 		m.Width = x.Width
 		m.Height = x.Height
@@ -329,6 +343,27 @@ func doctorCmd(svc service.Service, q string) tea.Cmd {
 	return func() tea.Msg {
 		rs, err := svc.Doctor(q)
 		return doctorDoneMsg{reports: rs, q: q, err: err}
+	}
+}
+
+// mapDoneMsg is the outcome of building one agent map.
+type mapDoneMsg struct {
+	q   string
+	err error
+}
+
+// mapCmd builds the agent map for q off the UI thread.
+func mapCmd(svc service.Service, q string) tea.Cmd {
+	return func() tea.Msg {
+		return mapDoneMsg{q: q, err: svc.Map(q)}
+	}
+}
+
+// listCmd re-queries the registry; Root applies projectsMsg.
+func listCmd(svc service.Service) tea.Cmd {
+	return func() tea.Msg {
+		ps, err := svc.List(service.Filter{})
+		return projectsMsg{ps: ps, err: err}
 	}
 }
 

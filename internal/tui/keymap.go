@@ -55,7 +55,7 @@ var keys = keyMap{
 	Open:         key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("o", "open")),
 	Detail:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail")),
 	Doctor:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "doctor")),
-	Map:          key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "build map")),
+	Map:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "build map")),
 	StageDigit:   key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "switch stage")),
 	StagePrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("left", "prev stage")),
 	StageNext:    key.NewBinding(key.WithKeys("right"), key.WithHelp("right", "next stage")),

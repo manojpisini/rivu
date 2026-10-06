@@ -216,6 +216,10 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := r.dashboard.Update(x)
 		r.dashboard = nm.(Model)
 		return r, cmd
+	case mapDoneMsg:
+		nm, cmd := r.dashboard.Update(x)
+		r.dashboard = nm.(Model)
+		return r, cmd
 	case doctorDoneMsg:
 		r.dashboard.Status = ""
 		if x.err != nil {
