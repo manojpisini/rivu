@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -30,6 +31,8 @@ type Model struct {
 	Height        int
 	WorkspaceRoot string
 	Status        string
+	Current       registry.Project
+	HasCurrent    bool
 	help          help.Model
 }
 
@@ -225,7 +228,11 @@ func (m Model) header() string {
 	brand := titleStyle.Render("RIVU") + " " + subtitleStyle.Render("PROJECT EXPLORER")
 	root := mutedStyle.Render(shorten(m.WorkspaceRoot, max(24, m.Width-42)))
 	first := lipgloss.JoinHorizontal(lipgloss.Top, brand, strings.Repeat(" ", max(1, m.Width-lipgloss.Width(brand)-lipgloss.Width(root))), root)
-	cards := fmt.Sprintf("%s %d   %s %d   %s %d   %s %d   %s %d   %s %d   %s %d/100",
+	current := "—"
+	if m.HasCurrent {
+		current = shorten(m.Current.Name, 18)
+	}
+	cards := fmt.Sprintf("%s %d   %s %d   %s %d   %s %d   %s %d   %s %d   %s %d/100   %s %s   %s %s",
 		badgeStyle.Render("ALL"), len(m.Projects),
 		badgeStyle.Render("SOURCE"), counts["source"],
 		badgeStyle.Render("ACTIVE"), counts["active"],
@@ -233,8 +240,40 @@ func (m Model) header() string {
 		badgeStyle.Render("RESEARCH"), counts["research"],
 		badgeStyle.Render("DELTA"), counts["delta"],
 		badgeStyle.Render("AVG HEALTH"), avg,
+		badgeStyle.Render("CURRENT"), current,
+		badgeStyle.Render("LAST SCAN"), ago(m.lastScan()),
 	)
 	return first + "\n" + cards
+}
+
+// lastScan is the most recent scan time across loaded projects.
+func (m Model) lastScan() time.Time {
+	var last time.Time
+	for _, p := range m.Projects {
+		if p.LastScannedAt.After(last) {
+			last = p.LastScannedAt
+		}
+	}
+	return last
+}
+
+// ago renders a compact relative time for the header; a zero
+// timestamp means the scan never happened (mirrors the CLI dashboard).
+func ago(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }
 
 func (m Model) sidebar(width, height int) string {

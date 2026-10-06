@@ -181,6 +181,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, nil
 	case currentMsg:
 		r.current, r.hasCurrent = x.p, x.ok
+		r.dashboard.Current, r.dashboard.HasCurrent = x.p, x.ok
 		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
