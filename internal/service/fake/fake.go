@@ -149,6 +149,9 @@ func (f *Service) OpenCommand(q, editor string) ([]string, error) {
 	if f.OpenErr != nil {
 		return nil, f.OpenErr
 	}
+	if editor == "" {
+		editor = "code"
+	}
 	return []string{editor, "path"}, nil
 }
 

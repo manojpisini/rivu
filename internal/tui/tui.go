@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/style"
@@ -43,6 +45,7 @@ type Model struct {
 	search        textinput.Model
 	help          help.Model
 	svc           service.Service
+	cfg           config.Config
 	scanning      bool
 	scanCancel    context.CancelFunc
 	scanCount     *atomic.Int32
@@ -188,9 +191,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				count.Store(int32(dirs))
 			}))
 		case key.Matches(x, keys.Open):
-			if p, ok := m.selectedProject(); ok {
-				m.Status = fmt.Sprintf("Open with: rivu open %s", p.Slug)
+			p, ok := m.selectedProject()
+			if !ok {
+				m.Status = "Select a project to open"
+				return m, nil
 			}
+			if m.svc == nil {
+				m.Status = "Open unavailable: no service in this session"
+				return m, nil
+			}
+			argv, tty, err := openTarget(m.svc, p.Slug, m.cfg.Editors.GUI)
+			if err != nil {
+				return m, ShowToast(Toast{Level: "bad", Text: "could not open " + p.Slug + ": " + err.Error()})
+			}
+			if !tty {
+				// Terminal editor: suspend the TUI and hand over the TTY.
+				return m, tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg {
+					return editorDoneMsg{slug: p.Slug, err: err}
+				})
+			}
+			// GUI editor: Start() in the background, TUI keeps running.
+			return m, startOpenCmd(p.Slug, argv)
 		case key.Matches(x, keys.Doctor):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Health check: rivu doctor %s", p.Slug)
@@ -212,6 +233,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, next
 	case scanDoneMsg:
 		return m.applyScanDone(x)
+	case editorDoneMsg:
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "editor for " + x.slug + " failed: " + x.err.Error()})
+		}
+		// Refresh on return: the editor may have touched files or git.
+		return m, func() tea.Msg {
+			ps, err := m.svc.List(service.Filter{})
+			return projectsMsg{ps: ps, err: err}
+		}
 	case tea.WindowSizeMsg:
 		m.Width = x.Width
 		m.Height = x.Height
@@ -269,6 +299,53 @@ func scanCmd(svc service.Service, ctx context.Context, progress func(dirs int)) 
 			return scanDoneMsg{err: listErr, warnings: res.Warnings}
 		}
 		return scanDoneMsg{ps: ps, warnings: res.Warnings}
+	}
+}
+
+// editorDoneMsg reports the outcome of an open: exec error, if any.
+type editorDoneMsg struct {
+	slug string
+	err  error
+}
+
+// guiLaunch mirrors editorlaunch.IsGUI for an argv we already hold
+// (re-joining and re-parsing would break paths with spaces): base name
+// match against config's [editors].gui list, case-insensitive.
+func guiLaunch(argv []string, gui []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	base := argv[0]
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.ToLower(base)
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+		base = strings.TrimSuffix(base, ext)
+	}
+	for _, g := range gui {
+		if base == strings.ToLower(g) {
+			return true
+		}
+	}
+	return false
+}
+
+// openTarget resolves the launch argv for slug and reports whether the
+// editor needs the terminal (tty) or can be Start()ed in background.
+func openTarget(svc service.Service, slug string, gui []string) (argv []string, tty bool, err error) {
+	argv, err = svc.OpenCommand(slug, "")
+	if err != nil {
+		return nil, false, err
+	}
+	return argv, !guiLaunch(argv, gui), nil
+}
+
+// startOpenCmd launches a GUI editor without blocking the TUI.
+func startOpenCmd(slug string, argv []string) tea.Cmd {
+	return func() tea.Msg {
+		err := exec.Command(argv[0], argv[1:]...).Start()
+		return editorDoneMsg{slug: slug, err: err}
 	}
 }
 

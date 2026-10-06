@@ -152,6 +152,7 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 		})
 	}
 	r.dashboard.svc = svc
+	r.dashboard.cfg = cfg
 	return r
 }
 
@@ -207,6 +208,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// open is not dropped by forward().
 		r.dashboard, _ = r.dashboard.applyScanDone(x)
 		return r, nil
+	case editorDoneMsg:
+		// A GUI editor can finish while another screen is active.
+		nm, cmd := r.dashboard.Update(x)
+		r.dashboard = nm.(Model)
+		return r, cmd
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
