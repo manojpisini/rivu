@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -728,5 +729,40 @@ func TestListAndCurrent(t *testing.T) {
 	p, ok := a.Current()
 	if !ok || p.Name != "solo" {
 		t.Errorf("Current = %+v, %v; want solo", p, ok)
+	}
+}
+
+func TestScanContextCancelledBeforeCommit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	root := filepath.Join(home, "ws")
+	p := filepath.Join(root, "demo")
+	if err := os.MkdirAll(p, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a.Config.Workspace.Root = root
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := a.ScanContext(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	ps, err := a.List(Filter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(ps) != 0 {
+		t.Errorf("cancelled scan committed %d projects, want none", len(ps))
 	}
 }

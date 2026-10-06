@@ -3,6 +3,7 @@
 package fake
 
 import (
+	"context"
 	"sync"
 
 	"github.com/manojpisini/rivu/internal/doctor"
@@ -74,6 +75,17 @@ func (f *Service) Index() (service.IndexResult, error) {
 
 func (f *Service) Scan() (service.ScanResult, error) {
 	f.record("Scan")
+	return f.ScanRes, f.ScanErr
+}
+
+func (f *Service) ScanContext(ctx context.Context, progress func(dirs int)) (service.ScanResult, error) {
+	f.record("ScanContext")
+	if err := ctx.Err(); err != nil {
+		return service.ScanResult{}, err
+	}
+	if progress != nil {
+		progress(1)
+	}
 	return f.ScanRes, f.ScanErr
 }
 

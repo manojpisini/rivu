@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -326,5 +328,51 @@ func TestScanCollectsWalkWarnings(t *testing.T) {
 	}
 	if len(warns) == 0 {
 		t.Error("expected a warning for the unreadable directory")
+	}
+}
+
+func TestScanContextCancelled(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "01_Active", "demo")
+	if err := os.MkdirAll(p, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := New(nil, 6).ScanContext(ctx, root, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestScanContextProgressCountsDirs(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "01_Active", "demo")
+	if err := os.MkdirAll(p, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module demo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var counts []int
+	got, _, err := New(nil, 6).ScanContext(context.Background(), root, func(dirs int) {
+		counts = append(counts, dirs)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("projects = %d, want 1", len(got))
+	}
+	// root, 01_Active, demo at minimum
+	if len(counts) < 3 || counts[len(counts)-1] < 3 {
+		t.Fatalf("progress counts = %v, want at least 3 rising entries", counts)
+	}
+	for i := 1; i < len(counts); i++ {
+		if counts[i] <= counts[i-1] {
+			t.Fatalf("progress must strictly increase: %v", counts)
+		}
 	}
 }

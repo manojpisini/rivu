@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/manojpisini/rivu/internal/bank"
@@ -38,6 +39,7 @@ type Service interface {
 	Dashboard() (Dashboard, error)
 	Index() (IndexResult, error)
 	Scan() (ScanResult, error)
+	ScanContext(ctx context.Context, progress func(dirs int)) (ScanResult, error)
 	Doctor(q string) ([]doctor.Report, error)
 	Source(name string, o SourceOpts) (SourceResult, error)
 	Flow(q, to string, flatten, dry bool) (FlowResult, error)
@@ -80,6 +82,13 @@ func (a *App) Current() (registry.Project, bool) {
 	return p, true
 }
 func (a *App) Scan() (ScanResult, error) {
+	return a.ScanContext(context.Background(), nil)
+}
+
+// ScanContext is Scan with cancellation and a per-directory progress
+// callback (TUI async scan). A cancelled walk returns before the
+// registry commit, so nothing is half-written.
+func (a *App) ScanContext(ctx context.Context, progress func(dirs int)) (ScanResult, error) {
 	if e := config.ValidateRoot(a.Config); e != nil {
 		return ScanResult{}, e
 	}
@@ -88,7 +97,10 @@ func (a *App) Scan() (ScanResult, error) {
 	var warnings []string
 	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
 	for i, root := range roots {
-		ps, scanWarns, e := s.Scan(root)
+		if e := ctx.Err(); e != nil {
+			return ScanResult{}, e
+		}
+		ps, scanWarns, e := s.ScanContext(ctx, root, progress)
 		for _, w := range scanWarns {
 			warnings = append(warnings, w.Error())
 		}

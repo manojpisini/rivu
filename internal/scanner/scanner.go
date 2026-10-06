@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -164,6 +165,13 @@ func ignored(patterns []string, rel string) bool {
 // root is an error; per-entry failures (permission denied, vanished files)
 // are collected as warnings so one bad folder never aborts the scan.
 func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
+	return s.ScanContext(context.Background(), root, nil)
+}
+
+// ScanContext is Scan with cancellation: the walk stops at the next
+// directory once ctx is done (returning ctx.Err()), and progress fires
+// with the running count of visited directories.
+func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(dirs int)) ([]registry.Project, []error, error) {
 	var out []registry.Project
 	var warnings []error
 	root = filepath.Clean(root)
@@ -175,10 +183,20 @@ func (s *Scanner) Scan(root string) ([]registry.Project, []error, error) {
 		return nil, nil, fmt.Errorf("workspace root %s is not a directory", root)
 	}
 	ignorePatterns := loadIgnorePatterns(root)
+	dirs := 0
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			warnings = append(warnings, fmt.Errorf("skipped %s: %w", path, err))
 			return nil
+		}
+		if d.IsDir() {
+			dirs++
+			if progress != nil {
+				progress(dirs)
+			}
 		}
 		rel, _ := filepath.Rel(root, path)
 		depth := 0

@@ -133,6 +133,7 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 			Text:  fmt.Sprintf("unknown theme %q, using graphite-violet", cfg.Appearance.Theme),
 		})
 	}
+	r.dashboard.svc = svc
 	return r
 }
 
@@ -182,6 +183,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case currentMsg:
 		r.current, r.hasCurrent = x.p, x.ok
 		r.dashboard.Current, r.dashboard.HasCurrent = x.p, x.ok
+		return r, nil
+	case scanDoneMsg:
+		// Intercepted here so a scan finishing while another screen is
+		// open is not dropped by forward().
+		r.dashboard, _ = r.dashboard.applyScanDone(x)
 		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)

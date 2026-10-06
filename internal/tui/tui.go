@@ -1,19 +1,24 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/style"
 )
 
@@ -37,6 +42,12 @@ type Model struct {
 	DetailFull    bool
 	search        textinput.Model
 	help          help.Model
+	svc           service.Service
+	scanning      bool
+	scanCancel    context.CancelFunc
+	scanCount     *atomic.Int32
+	scanDirs      int
+	spin          spinner.Model
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
@@ -46,6 +57,8 @@ func New(ps []registry.Project, workspaceRoot string) Model {
 	m.search.Width = 32
 	m.search.PromptStyle = selectedStyle
 	m.search.TextStyle = valueStyle
+	m.spin = spinner.New()
+	m.spin.Style = mutedStyle
 	m.applyFilter()
 	return m
 }
@@ -85,6 +98,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.DetailFull = false
 				return m, nil
 			}
+		}
+
+		// While a scan runs, esc cancels it (spec P3.15); the search
+		// input above keeps esc for clearing its own query.
+		if m.scanning && x.String() == "esc" {
+			if m.scanCancel != nil {
+				m.scanCancel()
+			}
+			m.Status = "Cancelling scan…"
+			return m, nil
 		}
 
 		switch {
@@ -146,7 +169,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Cursor = len(m.Visible) - 1
 			}
 		case key.Matches(x, keys.Refresh):
-			m.Status = "Run `rivu scan` to refresh the registry"
+			if m.scanning {
+				m.Status = "Scan already running - esc cancels it"
+				return m, nil
+			}
+			if m.svc == nil {
+				m.Status = "Scan unavailable: no service in this session"
+				return m, nil
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			m.scanning = true
+			m.scanCancel = cancel
+			m.scanCount = &atomic.Int32{}
+			m.scanDirs = 0
+			m.Status = ""
+			count := m.scanCount
+			return m, tea.Batch(m.spin.Tick, scanCmd(m.svc, ctx, func(dirs int) {
+				count.Store(int32(dirs))
+			}))
 		case key.Matches(x, keys.Open):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Open with: rivu open %s", p.Slug)
@@ -160,6 +200,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Status = fmt.Sprintf("Agent map: rivu agent sync %s", p.Slug)
 			}
 		}
+	case spinner.TickMsg:
+		if !m.scanning {
+			return m, nil
+		}
+		s, next := m.spin.Update(msg)
+		m.spin = s
+		if m.scanCount != nil {
+			m.scanDirs = int(m.scanCount.Load())
+		}
+		return m, next
+	case scanDoneMsg:
+		return m.applyScanDone(x)
 	case tea.WindowSizeMsg:
 		m.Width = x.Width
 		m.Height = x.Height
@@ -169,6 +221,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// applyScanDone folds an async scan outcome into the model: reloads the
+// list on success and always reports what happened in the status line.
+func (m Model) applyScanDone(x scanDoneMsg) (Model, tea.Cmd) {
+	m.scanning = false
+	if m.scanCancel != nil {
+		m.scanCancel()
+		m.scanCancel = nil
+	}
+	switch {
+	case x.cancelled:
+		m.Status = fmt.Sprintf("Scan cancelled after %d dirs", m.scanDirs)
+	case x.err != nil:
+		m.Status = "Scan failed: " + x.err.Error()
+	default:
+		m.Projects = x.ps
+		m.applyFilter()
+		m.Status = fmt.Sprintf("Scan done: %d projects", len(x.ps))
+		if n := len(x.warnings); n > 0 {
+			m.Status += fmt.Sprintf(" (%d warnings)", n)
+		}
+	}
+	return m, nil
+}
+
+// scanDoneMsg is the async scan outcome; cancelled distinguishes an
+// esc-initiated stop from a failure.
+type scanDoneMsg struct {
+	ps        []registry.Project
+	warnings  []string
+	err       error
+	cancelled bool
+}
+
+// scanCmd runs the service scan off the UI thread and reloads the list
+// from the registry (truth, spec 4.4.5).
+func scanCmd(svc service.Service, ctx context.Context, progress func(dirs int)) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.ScanContext(ctx, progress)
+		if err != nil {
+			return scanDoneMsg{err: err, cancelled: errors.Is(err, context.Canceled)}
+		}
+		ps, listErr := svc.List(service.Filter{})
+		if listErr != nil {
+			return scanDoneMsg{err: listErr, warnings: res.Warnings}
+		}
+		return scanDoneMsg{ps: ps, warnings: res.Warnings}
+	}
 }
 
 // setStage jumps the Flow sidebar to flowOrder[i] and refilters.
@@ -616,6 +717,13 @@ func detailChecks(p registry.Project) []string {
 }
 
 func (m Model) footer() string {
+	if m.scanning {
+		line := m.spin.View() + fmt.Sprintf(" scanning… %d dirs", m.scanDirs)
+		if m.Status != "" {
+			line += " - " + m.Status
+		}
+		return mutedStyle.Render(shorten(line, max(1, m.Width)))
+	}
 	if m.Status != "" {
 		return mutedStyle.Render(shorten(m.Status, max(1, m.Width)))
 	}
