@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -152,6 +153,75 @@ func TestFooterContextHints(t *testing.T) {
 	for _, b := range m.footerHints() {
 		if b.Help().Key == "" || b.Help().Desc == "" {
 			t.Errorf("context binding missing help text: %+v", b.Help())
+		}
+	}
+}
+
+// TestStageSwitching: 1-5 jump to a Flow stage, left/right walk the
+// sidebar stages with wrap, and left still switches panels elsewhere.
+func TestStageSwitching(t *testing.T) {
+	m := testModel(t)
+	if m.FocusSidebar {
+		m = update(t, m, runeKey("tab")) // start with the list focused
+	}
+	m = update(t, m, runeKey("2")) // active
+	if m.FlowCursor != 2 {
+		t.Fatalf("digit 2 -> FlowCursor %d, want 2 (active)", m.FlowCursor)
+	}
+	if flowOrder[m.FlowCursor] != "active" {
+		t.Fatalf("stage = %q, want active", flowOrder[m.FlowCursor])
+	}
+	m = update(t, m, runeKey("3")) // maintenance
+	if flowOrder[m.FlowCursor] != "maintenance" {
+		t.Fatalf("stage = %q, want maintenance", flowOrder[m.FlowCursor])
+	}
+	m = update(t, m, runeKey("5")) // delta
+	if m.FlowCursor != 5 {
+		t.Fatalf("digit 5 -> FlowCursor %d, want 5 (delta)", m.FlowCursor)
+	}
+	for _, p := range m.Visible {
+		if p.FlowStage != "delta" {
+			t.Fatalf("stage filter leaked %q (flow %q)", p.Name, p.FlowStage)
+		}
+	}
+
+	m = update(t, m, runeKey("tab")) // focus sidebar
+	if !m.FocusSidebar {
+		t.Fatal("tab must focus the sidebar")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.FlowCursor != 4 {
+		t.Errorf("left in sidebar -> %d, want 4", m.FlowCursor)
+	}
+	m.FlowCursor = 0
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.FlowCursor != len(flowOrder)-1 {
+		t.Errorf("left must wrap to %d, got %d", len(flowOrder)-1, m.FlowCursor)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.FlowCursor != 0 {
+		t.Errorf("right must wrap back to 0, got %d", m.FlowCursor)
+	}
+
+	m = update(t, m, runeKey("tab")) // back to the list
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if !m.FocusSidebar {
+		t.Error("left in the list must still switch panels")
+	}
+}
+
+// TestSidebarShowsCounts: the Flow sidebar lists every stage with its
+// project count.
+func TestSidebarShowsCounts(t *testing.T) {
+	m := New([]registry.Project{
+		{ID: "1", Name: "alpha", FlowStage: "source"},
+		{ID: "2", Name: "beta", FlowStage: "source"},
+		{ID: "3", Name: "gamma", FlowStage: "delta"},
+	}, `C:\ws`)
+	side := m.sidebar(24, 30)
+	for _, pattern := range []string{`FLOW`, `ALL\s+3`, `SOURCE\s+2`, `DELTA\s+1`} {
+		if !regexp.MustCompile(pattern).MatchString(side) {
+			t.Errorf("sidebar missing %s:\n%s", pattern, side)
 		}
 	}
 }

@@ -20,6 +20,9 @@ type keyMap struct {
 	Open         key.Binding
 	Doctor       key.Binding
 	Map          key.Binding
+	StageDigit   key.Binding
+	StagePrev    key.Binding
+	StageNext    key.Binding
 }
 
 // ShortHelp feeds the footer (help.Model.View).
@@ -30,7 +33,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 // FullHelp feeds the future help screen (spec 3.x); grouped by column.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.SwitchPanel, k.Up, k.Down, k.Top, k.Bottom},
+		{k.SwitchPanel, k.Up, k.Down, k.Top, k.Bottom, k.StageDigit, k.StagePrev, k.StageNext},
 		{k.Search, k.Clear, k.Open, k.Doctor, k.Map, k.Refresh},
 		{k.Quit},
 	}
@@ -51,4 +54,7 @@ var keys = keyMap{
 	Open:         key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("o", "open")),
 	Doctor:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "doctor")),
 	Map:          key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "build map")),
+	StageDigit:   key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "switch stage")),
+	StagePrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("left", "prev stage")),
+	StageNext:    key.NewBinding(key.WithKeys("right"), key.WithHelp("right", "next stage")),
 }

@@ -73,8 +73,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(x, keys.Quit):
 			return m, tea.Quit
+		case key.Matches(x, keys.StageDigit):
+			if s := x.String(); len(s) == 1 && s[0] >= '1' && s[0] <= '5' {
+				m.setStage(int(s[0] - '0'))
+			}
 		case key.Matches(x, keys.SwitchPanel):
-			m.FocusSidebar = !m.FocusSidebar
+			// While the sidebar has focus, left/right walk the stages;
+			// anywhere else they switch panels.
+			switch {
+			case m.FocusSidebar && key.Matches(x, keys.StagePrev):
+				m.stepStage(-1)
+			case m.FocusSidebar && key.Matches(x, keys.StageNext):
+				m.stepStage(1)
+			default:
+				m.FocusSidebar = !m.FocusSidebar
+			}
 		case key.Matches(x, keys.Search):
 			m.Searching = true
 			m.FocusSidebar = false
@@ -131,6 +144,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// setStage jumps the Flow sidebar to flowOrder[i] and refilters.
+func (m *Model) setStage(i int) {
+	if i < 0 || i >= len(flowOrder) {
+		return
+	}
+	m.FlowCursor = i
+	m.Cursor = 0
+	m.applyFilter()
+}
+
+// stepStage walks the Flow sidebar by delta, wrapping at both ends.
+func (m *Model) stepStage(delta int) {
+	n := len(flowOrder)
+	m.setStage(((m.FlowCursor+delta)%n + n) % n)
 }
 
 func (m *Model) applyFilter() {
