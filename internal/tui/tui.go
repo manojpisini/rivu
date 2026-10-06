@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/manojpisini/rivu/internal/config"
+	"github.com/manojpisini/rivu/internal/doctor"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/style"
@@ -213,9 +214,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// GUI editor: Start() in the background, TUI keeps running.
 			return m, startOpenCmd(p.Slug, argv)
 		case key.Matches(x, keys.Doctor):
-			if p, ok := m.selectedProject(); ok {
-				m.Status = fmt.Sprintf("Health check: rivu doctor %s", p.Slug)
+			if m.svc == nil {
+				m.Status = "Health checks unavailable: no service in this session"
+				return m, nil
 			}
+			q := ""
+			if p, ok := m.selectedProject(); ok {
+				q = p.Slug // nothing selected (empty list) checks all
+			}
+			m.Status = "Running health checks…"
+			return m, doctorCmd(m.svc, q)
 		case key.Matches(x, keys.Map):
 			if p, ok := m.selectedProject(); ok {
 				m.Status = fmt.Sprintf("Agent map: rivu agent sync %s", p.Slug)
@@ -306,6 +314,22 @@ func scanCmd(svc service.Service, ctx context.Context, progress func(dirs int)) 
 type editorDoneMsg struct {
 	slug string
 	err  error
+}
+
+// doctorDoneMsg carries health-check reports to the Root, which owns the
+// result screen.
+type doctorDoneMsg struct {
+	reports []doctor.Report
+	q       string
+	err     error
+}
+
+// doctorCmd runs health checks off the UI thread.
+func doctorCmd(svc service.Service, q string) tea.Cmd {
+	return func() tea.Msg {
+		rs, err := svc.Doctor(q)
+		return doctorDoneMsg{reports: rs, q: q, err: err}
+	}
 }
 
 // guiLaunch mirrors editorlaunch.IsGUI for an argv we already hold

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/manojpisini/rivu/internal/config"
+	"github.com/manojpisini/rivu/internal/doctor"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/style"
@@ -102,6 +103,8 @@ type Root struct {
 	confirms     []confirm
 	errs         []string
 	errExpand    bool
+	doctorRes    []doctor.Report
+	doctorQ      string
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -213,6 +216,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := r.dashboard.Update(x)
 		r.dashboard = nm.(Model)
 		return r, cmd
+	case doctorDoneMsg:
+		r.dashboard.Status = ""
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "health checks failed: " + x.err.Error()})
+		}
+		r.doctorRes, r.doctorQ = x.reports, x.q
+		r.screen = ScreenHealth
+		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
@@ -242,6 +253,18 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// "e" expands sticky errors, but never steals a typed search.
 		if x.String() == "e" && len(r.errs) > 0 && !r.dashboard.search.Focused() {
 			r.errExpand = true
+			return r, nil
+		}
+		if r.screen != ScreenDashboard {
+			// Sub-screens: esc/q go back, ctrl+c quits, everything else
+			// belongs to the screen once it grows its own keymap.
+			switch x.String() {
+			case "esc", "q":
+				r.screen = ScreenDashboard
+				return r, nil
+			case "ctrl+c":
+				return r, tea.Quit
+			}
 			return r, nil
 		}
 		return r.forward(x)
@@ -367,6 +390,8 @@ func (r Root) View() string {
 	switch r.screen {
 	case ScreenDashboard:
 		body = r.dashboard.View()
+	case ScreenHealth:
+		body = r.doctorView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))
@@ -421,6 +446,38 @@ func (r Root) errExpandView() string {
 	}
 	b.WriteString("\n\n" + r.styleMuted.Render("x clear all · esc close"))
 	return r.styleErrBox.Render(b.String())
+}
+
+// doctorView renders health-check reports: every project's score, then
+// only the failing checks (the rest come from `rivu doctor`).
+func (r Root) doctorView() string {
+	var b strings.Builder
+	title := "HEALTH — all projects"
+	if r.doctorQ != "" {
+		title = "HEALTH — " + r.doctorQ
+	}
+	b.WriteString(r.styleTitle.Render(title))
+	if len(r.doctorRes) == 0 {
+		b.WriteString("\n\n" + r.styleMuted.Render("No projects to check yet — press n to source one"))
+		b.WriteString("\n" + r.styleMuted.Render("esc back"))
+		return b.String()
+	}
+	for _, rep := range r.doctorRes {
+		b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score))
+		failed := false
+		for _, c := range rep.Checks {
+			if c.OK {
+				continue
+			}
+			failed = true
+			b.WriteString("\n" + r.styleErr.Render(" ! "+c.Name) + "  " + c.Detail)
+		}
+		if !failed {
+			b.WriteString("\n" + r.styleMuted.Render(" all checks pass"))
+		}
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render("esc back · rivu doctor for full output"))
+	return b.String()
 }
 
 func (r Root) toastView(t Toast) string {

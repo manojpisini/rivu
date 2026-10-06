@@ -42,7 +42,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 
 var keys = keyMap{
 	Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-	SwitchPanel:  key.NewBinding(key.WithKeys("tab", "left", "h", "right", "l"), key.WithHelp("tab", "switch panel")),
+	SwitchPanel:  key.NewBinding(key.WithKeys("tab", "left", "right"), key.WithHelp("tab", "switch panel")),
 	Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	SearchDone:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "done")),
 	SearchCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
