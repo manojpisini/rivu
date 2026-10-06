@@ -123,6 +123,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Width = x.Width
 		m.Height = x.Height
 		m.help.Width = x.Width
+		if x.Width < 100 && m.FocusSidebar {
+			m.FocusSidebar = false // sidebar pane is hidden below 100 cols
+		}
 	}
 	return m, nil
 }
@@ -179,28 +182,42 @@ func (m Model) View() string {
 	if m.Width == 0 {
 		return "Loading Rivu…"
 	}
+	if m.Width < 60 || m.Height < 15 {
+		return tooSmall(m.Width, m.Height)
+	}
 
 	header := m.header()
 	footer := m.footer()
 	bodyHeight := max(10, m.Height-lipgloss.Height(header)-lipgloss.Height(footer)-1)
 
-	sidebarWidth := clamp(m.Width/5, 20, 28)
-	rightWidth := clamp(m.Width/3, 34, 52)
-	centerWidth := m.Width - sidebarWidth - rightWidth - 4
-	if centerWidth < 36 {
-		rightWidth = 0
-		centerWidth = m.Width - sidebarWidth - 2
-	}
-
-	sidebar := m.sidebar(sidebarWidth, bodyHeight)
-	projects := m.projectPanel(centerWidth, bodyHeight)
-	row := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", projects)
-	if rightWidth > 0 {
-		details := m.detailsPanel(rightWidth, bodyHeight)
-		row = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", projects, " ", details)
+	var row string
+	switch {
+	case m.Width < 100: // single pane: project list only
+		row = m.projectPanel(m.Width-2, bodyHeight)
+	case m.Width < 140: // two panes: list + detail
+		rightWidth := clamp(m.Width/3, 30, 44)
+		centerWidth := m.Width - rightWidth - 3
+		row = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.projectPanel(centerWidth, bodyHeight), " ",
+			m.detailsPanel(rightWidth, bodyHeight))
+	default: // three panes: sidebar + list + detail
+		sidebarWidth := clamp(m.Width/5, 20, 28)
+		rightWidth := clamp(m.Width/3, 34, 52)
+		centerWidth := m.Width - sidebarWidth - rightWidth - 4
+		row = lipgloss.JoinHorizontal(lipgloss.Top,
+			m.sidebar(sidebarWidth, bodyHeight), " ",
+			m.projectPanel(centerWidth, bodyHeight), " ",
+			m.detailsPanel(rightWidth, bodyHeight))
 	}
 
 	return bgStyle.Width(m.Width).Render(header + "\n" + row + "\n" + footer)
+}
+
+// tooSmall is the <60x15 rescue screen (AGENTS 8 layout rules).
+func tooSmall(w, h int) string {
+	msg := fmt.Sprintf("Terminal too small — need at least 60×15 (got %d×%d). Resize and Rivu adapts.", w, h)
+	box := lipgloss.NewStyle().Foreground(theme.Warn).Render(msg)
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 
 func (m Model) header() string {
