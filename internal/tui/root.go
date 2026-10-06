@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
@@ -93,9 +94,13 @@ type Root struct {
 	hasCurrent   bool
 	toasts       []Toast
 	confirms     []confirm
+	errs         []string
+	errExpand    bool
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
+	styleErr     lipgloss.Style
+	styleErrBox  lipgloss.Style
 	styleToast   map[string]lipgloss.Style
 }
 
@@ -120,6 +125,13 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 			Background(theme.Panel).
 			Padding(0, style.Pad),
 		styleMuted: lipgloss.NewStyle().Foreground(theme.Muted),
+		styleErr:   lipgloss.NewStyle().Foreground(theme.Bad).Bold(true),
+		styleErrBox: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(theme.Bad).
+			Foreground(theme.Text).
+			Background(theme.Panel).
+			Padding(0, style.Pad),
 		styleToast: map[string]lipgloss.Style{
 			"":     lipgloss.NewStyle().Foreground(theme.Muted),
 			"good": lipgloss.NewStyle().Foreground(theme.Good),
@@ -193,8 +205,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
 	case toastMsg:
-		r.toasts = append(r.toasts, x.t)
-		return r, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return popToastMsg{} })
+		return r.pushToast(x.t)
 	case popToastMsg:
 		if len(r.toasts) > 0 {
 			r.toasts = r.toasts[1:]
@@ -203,6 +214,23 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if n := len(r.confirms); n > 0 {
 			return r.updateConfirm(x, r.confirms[n-1])
+		}
+		if r.errExpand {
+			switch x.String() {
+			case "e", "esc":
+				r.errExpand = false
+			case "x":
+				r.errs = nil
+				r.errExpand = false
+			case "ctrl+c":
+				return r, tea.Quit
+			}
+			return r, nil // the overlay swallows every other key
+		}
+		// "e" expands sticky errors, but never steals a typed search.
+		if x.String() == "e" && len(r.errs) > 0 && !r.dashboard.search.Focused() {
+			r.errExpand = true
+			return r, nil
 		}
 		return r.forward(x)
 	default:
@@ -238,9 +266,20 @@ func (r Root) updateConfirm(msg tea.KeyMsg, c confirm) (tea.Model, tea.Cmd) {
 	return r, nil // swallow every other key while a modal is open
 }
 
+// pushToast queues a transient line: errors are sticky (kept until the
+// user clears them with `x` in the `e` overlay — never lost behind a
+// redraw), everything else expires after 3 s.
 func (r Root) pushToast(t Toast) (tea.Model, tea.Cmd) {
+	if t.Level == "bad" {
+		r.errs = append(r.errs, t.Text)
+		// ponytail: cap at 10 — raise only if errors start vanishing in practice
+		if len(r.errs) > 10 {
+			r.errs = r.errs[len(r.errs)-10:]
+		}
+		return r, nil
+	}
 	r.toasts = append(r.toasts, t)
-	return r, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return popToastMsg{} })
+	return r, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return popToastMsg{} })
 }
 
 // Confirm queues a yes/no modal over the current screen.
@@ -267,6 +306,9 @@ func (r Root) View() string {
 	for _, t := range r.toasts {
 		body += "\n" + r.toastView(t)
 	}
+	if len(r.errs) > 0 && !r.errExpand {
+		body += "\n" + r.errBannerView()
+	}
 	if n := len(r.confirms); n > 0 {
 		box := r.confirmView(r.confirms[n-1])
 		if r.width > 0 && r.height > 0 {
@@ -274,7 +316,43 @@ func (r Root) View() string {
 		}
 		return box
 	}
+	if r.errExpand {
+		box := r.errExpandView()
+		if r.width > 0 && r.height > 0 {
+			return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
+		}
+		return box
+	}
 	return body
+}
+
+// errBannerView is the one-line sticky error notice; full text lives in
+// the `e` overlay. Width 0 means "not measured yet" — no truncation.
+func (r Root) errBannerView() string {
+	first := r.errs[0]
+	if r.width > 0 {
+		first = shorten(first, max(1, r.width-14))
+	}
+	extra := ""
+	if n := len(r.errs); n > 1 {
+		extra = fmt.Sprintf(" (+%d more)", n-1)
+	}
+	return r.styleErr.Render(fmt.Sprintf(" %s%s  [e expand]", first, extra))
+}
+
+// errExpandView lists every sticky error in full, wrapped to width.
+func (r Root) errExpandView() string {
+	var b strings.Builder
+	b.WriteString(r.styleTitle.Render(fmt.Sprintf("ERRORS (%d)", len(r.errs))))
+	for _, e := range r.errs {
+		text := e
+		if r.width > 0 {
+			text = ansi.Wrap(e, max(20, r.width-8), "")
+		}
+		b.WriteString("\n\n" + text)
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render("x clear all · esc close"))
+	return r.styleErrBox.Render(b.String())
 }
 
 func (r Root) toastView(t Toast) string {

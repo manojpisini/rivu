@@ -72,14 +72,18 @@ func TestProjectsMsgPopulatesDashboard(t *testing.T) {
 	}
 }
 
-func TestProjectsMsgErrorToasts(t *testing.T) {
+func TestProjectsMsgErrorStickyBanner(t *testing.T) {
 	r := NewRoot(errListSvc{&fake.Service{}}, config.Default())
-	r, _ = upd(t, r, r.loadProjects()())
-	if len(r.toasts) != 1 || r.toasts[0].Level != "bad" {
-		t.Fatalf("toasts = %+v, want one bad toast", r.toasts)
+	r, cmd := upd(t, r, r.loadProjects()())
+	if cmd != nil {
+		t.Fatal("errors are sticky and must not schedule an expiry tick")
 	}
-	if !strings.Contains(r.View(), "could not list projects") {
-		t.Fatalf("view should explain the failure, got %q", r.View())
+	if len(r.errs) != 1 || len(r.toasts) != 0 {
+		t.Fatalf("errs = %+v, toasts = %+v, want the error sticky, no transient toast", r.errs, r.toasts)
+	}
+	v := r.View()
+	if !strings.Contains(v, "could not list projects") || !strings.Contains(v, "[e expand]") {
+		t.Fatalf("banner should show the failure and the expand hint, got %q", v)
 	}
 }
 
