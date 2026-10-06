@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/style"
 )
@@ -334,6 +335,46 @@ func (m Model) sidebar(width, height int) string {
 	return style.Width(width - 2).Height(height - 2).Render(b.String())
 }
 
+// tableCols lists the optional project-table columns that fit at the
+// current width; when space runs short the shrink order is path, then
+// language, then channel (P3.09).
+type tableCols struct{ path, lang, channel bool }
+
+func columnsFor(inner int) tableCols {
+	switch {
+	case inner >= 70:
+		return tableCols{path: true, lang: true, channel: true}
+	case inner >= 55:
+		return tableCols{lang: true, channel: true}
+	case inner >= 44:
+		return tableCols{channel: true}
+	default:
+		return tableCols{}
+	}
+}
+
+// padCell truncates s to w display cells (tail side) and right-pads.
+func padCell(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	s = ansi.Truncate(s, w, "…")
+	return s + strings.Repeat(" ", max(0, w-lipgloss.Width(s)))
+}
+
+// padStartCell keeps the tail of s (paths) and right-pads to w.
+func padStartCell(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	for lipgloss.Width(s) > w-1 && s != "" {
+		_, n := utf8.DecodeRuneInString(s)
+		s = s[n:]
+	}
+	s = "…" + s
+	return padCell(s, w)
+}
+
 func (m Model) projectPanel(width, height int) string {
 	var b strings.Builder
 	flow := strings.ToUpper(flowOrder[m.FlowCursor])
@@ -344,9 +385,50 @@ func (m Model) projectPanel(width, height int) string {
 		query = "  " + mutedStyle.Render("filter: "+m.Query)
 	}
 	b.WriteString(titleStyle.Render(flow+" PROJECTS") + query + "\n")
-	b.WriteString(mutedStyle.Render(fmt.Sprintf("%-3s %-24s %-12s %6s", "", "NAME", "STACK", "HEALTH")) + "\n")
-	b.WriteString(mutedStyle.Render(strings.Repeat("─", max(1, width-4))) + "\n")
 
+	inner := width - 4
+	cols := columnsFor(inner)
+	const (
+		markerW = 2
+		healthW = 8
+		langW   = 12
+		chanW   = 10
+	)
+	fixed := markerW + healthW
+	if cols.lang {
+		fixed += langW + 1
+	}
+	if cols.channel {
+		fixed += chanW + 1
+	}
+	remainder := max(0, inner-fixed)
+	nameW := max(14, remainder*2/3)
+	pathW := 0
+	if cols.path {
+		pathW = remainder - nameW - 2
+		if pathW < 10 {
+			cols.path = false
+			nameW = remainder
+		}
+	} else {
+		nameW = remainder
+	}
+
+	header := padCell("", markerW) + padCell("NAME", nameW)
+	if cols.path {
+		header += " " + padCell("PATH", pathW)
+	}
+	if cols.lang {
+		header += " " + padCell("LANGUAGE", langW)
+	}
+	if cols.channel {
+		header += " " + padCell("CHANNEL", chanW)
+	}
+	header += strings.Repeat(" ", healthW-len("HEALTH")) + "HEALTH"
+	b.WriteString(mutedStyle.Render(header) + "\n")
+	b.WriteString(mutedStyle.Render(strings.Repeat("─", max(1, inner))) + "\n")
+
+	// Virtualised rows: only the window around the cursor is rendered.
 	available := max(1, height-6)
 	start := 0
 	if m.Cursor >= available {
@@ -363,8 +445,17 @@ func (m Model) projectPanel(width, height int) string {
 		if lang == "" {
 			lang = "Unknown"
 		}
-		nameWidth := max(10, width-27)
-		line := fmt.Sprintf("%s%-*s %-12s %3d/100", marker, nameWidth, shorten(p.Name, nameWidth), shorten(lang, 12), p.HealthScore)
+		line := marker + padCell(p.Name, nameW)
+		if cols.path {
+			line += " " + padStartCell(p.Path, pathW)
+		}
+		if cols.lang {
+			line += " " + padCell(lang, langW)
+		}
+		if cols.channel {
+			line += " " + padCell(p.Channel, chanW)
+		}
+		line += fmt.Sprintf(" %3d/100", p.HealthScore)
 		if i == m.Cursor {
 			line = selectedStyle.Render(line)
 		}
