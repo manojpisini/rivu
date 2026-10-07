@@ -12,6 +12,8 @@ func keyShiftTab() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyShiftTab}
 }
 func keyCtrlS() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlS} }
+func keyLeft() tea.KeyMsg  { return tea.KeyMsg{Type: tea.KeyLeft} }
+func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
 
 // openSource runs the `n` dispatch command and feeds the resulting
 // screen switch back into the model.
@@ -84,10 +86,12 @@ func TestSourceWizardScaffold(t *testing.T) {
 		t.Errorf("ctrl+s status = %q", r.dashboard.Status)
 	}
 
-	// q also cancels — but only on a read-only field; on a focused
-	// field it types (a name may contain q), so blur first with tab.
+	// q also cancels — the Flow selector row is read-only (blurred), so
+	// q leaves instead of typing; on a text field it types instead.
 	r, _ = upd(t, r, keyEnter())
-	r, _ = upd(t, r, keyTab())
+	if r.src.input.Focused() {
+		t.Fatal("flow selector must not focus the text input")
+	}
 	r, _ = upd(t, r, keyR('q'))
 	if r.screen != ScreenDashboard || r.src.step != 0 {
 		t.Errorf("q: screen=%s src=%+v", screenNames[r.screen], r.src)
@@ -181,5 +185,80 @@ func TestSourceIdentityStep(t *testing.T) {
 	}
 	if !strings.Contains(r.View(), "Name cannot be used as a project slug") {
 		t.Errorf("invalid name missing hint: %q", r.View())
+	}
+}
+
+// TestSourceClassificationStep (P4.03): the Flow stage selector
+// cycles with arrows and jumps with digits, Type/Domain/Confluences
+// type text, and the values survive the step change.
+func TestSourceClassificationStep(t *testing.T) {
+	r, _ := rootOf(t)
+	r = openSource(t, r)
+	r, _ = upd(t, r, keyEnter()) // -> Classification, Flow stage focused
+	if r.src.step != 1 || r.src.field != 0 {
+		t.Fatalf("step=%d field=%d, want 1/0", r.src.step, r.src.field)
+	}
+
+	v := r.View()
+	for _, want := range []string{"Source — Classification", "Flow stage:", "Type:", "Domain:", "Confluences:", "source"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+	if !strings.Contains(v, "1-5 to change the stage") {
+		t.Error("selector hint missing")
+	}
+
+	// arrows cycle through the lifecycle, wrapping at both ends
+	r, _ = upd(t, r, keyRight())
+	if r.src.flow != "active" {
+		t.Errorf("right -> flow = %q", r.src.flow)
+	}
+	r, _ = upd(t, r, keyLeft())
+	r, _ = upd(t, r, keyLeft())
+	if r.src.flow != "delta" {
+		t.Errorf("wrap left -> flow = %q", r.src.flow)
+	}
+	// digits jump straight to a stage (flow picker vocabulary)
+	r, _ = upd(t, r, keyR('3'))
+	if r.src.flow != "maintenance" {
+		t.Errorf("digit 3 -> flow = %q", r.src.flow)
+	}
+	// stray keys on the selector row are inert (input is blurred)
+	r, _ = upd(t, r, keyR('z'))
+	if r.src.flow != "maintenance" {
+		t.Errorf("stray z changed flow to %q", r.src.flow)
+	}
+
+	// Type, Domain and Confluences take typed values
+	r, _ = upd(t, r, keyTab())
+	if !r.src.input.Focused() {
+		t.Fatal("Type must be focused")
+	}
+	for _, c := range "cli" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	r, _ = upd(t, r, keyTab())
+	for _, c := range "devtools" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	r, _ = upd(t, r, keyTab())
+	for _, c := range "ship,brand" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	if r.src.typ != "cli" || r.src.domain != "devtools" || r.src.confluences != "ship,brand" {
+		t.Fatalf("classification = %q/%q/%q", r.src.typ, r.src.domain, r.src.confluences)
+	}
+
+	// values are visible and survive into step 3
+	v = r.View()
+	for _, want := range []string{"cli", "devtools", "ship,brand"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+	r, _ = upd(t, r, keyEnter())
+	if r.src.step != 2 || r.src.flow != "maintenance" || r.src.typ != "cli" || r.src.domain != "devtools" || r.src.confluences != "ship,brand" {
+		t.Fatalf("step 3 wizard = %+v", r.src)
 	}
 }

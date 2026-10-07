@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,14 +24,19 @@ var sourceSteps = []struct {
 	{"Dry run", nil},
 }
 
-// sourceWizard tracks position plus the Identity values; Name and
-// Description are edited through one shared textinput, Slug is a live
-// preview of slug.Make(Name) and never typed (spec 3.5).
+// sourceWizard tracks position plus the Identity and Classification
+// values; text fields share one textinput, Slug and Flow stage are
+// read-only/selector rows (spec 3.5).
 type sourceWizard struct {
 	step        int
 	field       int
 	name        string
 	description string
+	// step 2 Classification (P4.03)
+	flow        string // "" means the default first stage
+	typ         string
+	domain      string
+	confluences string
 	input       textinput.Model
 }
 
@@ -43,21 +49,56 @@ func newSourceWizard() sourceWizard {
 	return sourceWizard{input: in}
 }
 
-// editable reports whether the focused field is a typed field (Slug
-// and every field past step 1 are read-only for now).
+// editable reports whether the focused field takes text input: Slug
+// and Flow stage are selector rows, Classification's Type/Domain/
+// Confluences type, and the remaining steps arrive with P4.04+.
 func (w sourceWizard) editable() bool {
-	return w.step == 0 && (w.field == 0 || w.field == 2)
+	if w.step == 0 {
+		return w.field == 0 || w.field == 2
+	}
+	return w.step == 1 && w.field >= 1
 }
 
 func (w sourceWizard) value() string {
-	if w.step != 0 {
-		return ""
-	}
-	switch w.field {
+	switch w.step {
 	case 0:
-		return w.name
+		switch w.field {
+		case 0:
+			return w.name
+		case 2:
+			return w.description
+		}
+	case 1:
+		switch w.field {
+		case 1:
+			return w.typ
+		case 2:
+			return w.domain
+		case 3:
+			return w.confluences
+		}
+	}
+	return ""
+}
+
+// flowValue is the Flow stage the selector shows; "" means the
+// lifecycle's first stage (source).
+func (w sourceWizard) flowValue() string {
+	if w.flow == "" {
+		return flowOrder[1]
+	}
+	return w.flow
+}
+
+// valueAt reads the raw value of a Classification row by index.
+func (w sourceWizard) valueAt(i int) string {
+	switch i {
+	case 1:
+		return w.typ
 	case 2:
-		return w.description
+		return w.domain
+	case 3:
+		return w.confluences
 	}
 	return ""
 }
@@ -79,11 +120,37 @@ func (w *sourceWizard) commitField() {
 	if !w.editable() {
 		return
 	}
-	switch w.field {
+	switch w.step {
 	case 0:
-		w.name = w.input.Value()
-	case 2:
-		w.description = w.input.Value()
+		switch w.field {
+		case 0:
+			w.name = w.input.Value()
+		case 2:
+			w.description = w.input.Value()
+		}
+	case 1:
+		switch w.field {
+		case 1:
+			w.typ = w.input.Value()
+		case 2:
+			w.domain = w.input.Value()
+		case 3:
+			w.confluences = w.input.Value()
+		}
+	}
+}
+
+// cycleFlow moves the stage selector (flow picker keys, dashboard
+// vocabulary): arrows step, digits jump.
+func (w *sourceWizard) cycleFlow(dir int) {
+	stages := flowOrder[1:]
+	i := slices.Index(stages, w.flowValue())
+	w.flow = stages[((i+dir)%len(stages)+len(stages))%len(stages)]
+}
+
+func (w *sourceWizard) setFlow(i int) {
+	if i >= 0 && i < len(flowOrder)-1 {
+		w.flow = flowOrder[i+1]
 	}
 }
 
@@ -151,6 +218,18 @@ func (r Root) updateSource(k tea.KeyMsg) (Root, tea.Cmd) {
 			r.dashboard.Status = "Nothing created yet — the dry run is not ready, press esc to leave"
 		}
 		return r, nil
+	case "left", "right", "up", "down":
+		// the Flow stage selector (P4.03); on a text field the arrows
+		// move the input's cursor below
+		if w.step == 1 && w.field == 0 {
+			w.cycleFlow(arrowDir(k.String()))
+			return r, nil
+		}
+	case "1", "2", "3", "4", "5":
+		if w.step == 1 && w.field == 0 {
+			w.setFlow(int(k.String()[0] - '1'))
+			return r, nil
+		}
 	}
 	if w.input.Focused() {
 		in, cmd := w.input.Update(k)
@@ -159,6 +238,14 @@ func (r Root) updateSource(k tea.KeyMsg) (Root, tea.Cmd) {
 		return r, cmd
 	}
 	return r, nil
+}
+
+// arrowDir maps the selector's arrow keys to -1/+1.
+func arrowDir(key string) int {
+	if key == "left" || key == "up" {
+		return -1
+	}
+	return 1
 }
 
 // sourceView renders the wizard: title, five-step indicator, the
@@ -189,7 +276,8 @@ func (r Root) sourceView() string {
 	b.WriteString("\n\n")
 	for i, f := range step.fields {
 		value := r.styleMuted.Render("—")
-		if w.step == 0 {
+		switch w.step {
+		case 0:
 			switch {
 			case i == 0:
 				if w.field == 0 {
@@ -208,6 +296,17 @@ func (r Root) sourceView() string {
 					value = w.description
 				}
 			}
+		case 1:
+			if i == 0 { // Flow stage selector
+				value = w.flowValue()
+				if w.field == 0 {
+					value = selectedStyle.Render(value)
+				}
+			} else if w.field == i {
+				value = w.input.View()
+			} else if v := w.valueAt(i); v != "" {
+				value = v
+			}
 		}
 		line := "  " + padCell(f+":", 20) + value
 		if i == w.field {
@@ -218,6 +317,9 @@ func (r Root) sourceView() string {
 			if hint := identityHint(w.name); hint != "" {
 				b.WriteString(r.styleErr.Render("  ! "+hint) + "\n")
 			}
+		}
+		if w.step == 1 && i == 0 && w.field == 0 {
+			b.WriteString(r.styleMuted.Render("  ←/→ or 1-5 to change the stage") + "\n")
 		}
 	}
 	if len(step.fields) == 0 {
