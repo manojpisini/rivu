@@ -190,6 +190,15 @@ func logCrash(rec any, errp *error) {
 	*errp = fmt.Errorf("tui crashed: %v (stack trace in the Rivu log)", rec)
 }
 
+// windowTitle is "Rivu — <Current>" (AGENTS 8), plain "Rivu" until a
+// Current exists (P3.28).
+func windowTitle(name string, has bool) string {
+	if !has || name == "" {
+		return "Rivu"
+	}
+	return "Rivu — " + name
+}
+
 // Init loads Current and the project list asynchronously.
 func (r Root) Init() tea.Cmd {
 	return tea.Batch(r.loadProjects(), r.loadCurrent())
@@ -215,7 +224,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch x := msg.(type) {
 	case tea.WindowSizeMsg:
 		r.width, r.height = x.Width, x.Height
-		return r.forward(x)
+		nr, cmd := r.forward(x)
+		return nr, tea.Batch(cmd, tea.SetWindowTitle(windowTitle(r.dashboard.Current.Name, r.hasCurrent)))
 	case SelectScreenMsg:
 		r.screen = x.Screen
 		return r, nil
@@ -229,7 +239,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case currentMsg:
 		r.current, r.hasCurrent = x.p, x.ok
 		r.dashboard.Current, r.dashboard.HasCurrent = x.p, x.ok
-		return r, nil
+		return r, tea.SetWindowTitle(windowTitle(x.p.Name, x.ok))
 	case scanDoneMsg:
 		// Intercepted here so a scan finishing while another screen is
 		// open is not dropped by forward().
