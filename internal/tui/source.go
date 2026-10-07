@@ -37,7 +37,11 @@ type sourceWizard struct {
 	typ         string
 	domain      string
 	confluences string
-	input       textinput.Model
+	// step 3 Stack (P4.04)
+	language   string
+	template   string
+	pkgManager string
+	input      textinput.Model
 }
 
 // newSourceWizard opens step 1 with the Name field focused.
@@ -50,35 +54,26 @@ func newSourceWizard() sourceWizard {
 }
 
 // editable reports whether the focused field takes text input: Slug
-// and Flow stage are selector rows, Classification's Type/Domain/
-// Confluences type, and the remaining steps arrive with P4.04+.
+// and Flow stage are selector rows; Identity, Classification and
+// Stack type; Automation arrives with P4.05+.
 func (w sourceWizard) editable() bool {
 	if w.step == 0 {
 		return w.field == 0 || w.field == 2
 	}
-	return w.step == 1 && w.field >= 1
+	return (w.step == 1 && w.field >= 1) || w.step == 2
 }
 
 func (w sourceWizard) value() string {
-	switch w.step {
-	case 0:
+	if w.step == 0 {
 		switch w.field {
 		case 0:
 			return w.name
 		case 2:
 			return w.description
 		}
-	case 1:
-		switch w.field {
-		case 1:
-			return w.typ
-		case 2:
-			return w.domain
-		case 3:
-			return w.confluences
-		}
+		return ""
 	}
-	return ""
+	return w.valueAt(w.field)
 }
 
 // flowValue is the Flow stage the selector shows; "" means the
@@ -90,15 +85,28 @@ func (w sourceWizard) flowValue() string {
 	return w.flow
 }
 
-// valueAt reads the raw value of a Classification row by index.
+// valueAt reads a typed row's raw value by field index for steps 2+
+// (the view shows it when the row is not focused).
 func (w sourceWizard) valueAt(i int) string {
-	switch i {
+	switch w.step {
 	case 1:
-		return w.typ
+		switch i {
+		case 1:
+			return w.typ
+		case 2:
+			return w.domain
+		case 3:
+			return w.confluences
+		}
 	case 2:
-		return w.domain
-	case 3:
-		return w.confluences
+		switch i {
+		case 0:
+			return w.language
+		case 1:
+			return w.template
+		case 2:
+			return w.pkgManager
+		}
 	}
 	return ""
 }
@@ -136,6 +144,15 @@ func (w *sourceWizard) commitField() {
 			w.domain = w.input.Value()
 		case 3:
 			w.confluences = w.input.Value()
+		}
+	case 2:
+		switch w.field {
+		case 0:
+			w.language = w.input.Value()
+		case 1:
+			w.template = w.input.Value()
+		case 2:
+			w.pkgManager = w.input.Value()
 		}
 	}
 }
@@ -296,8 +313,8 @@ func (r Root) sourceView() string {
 					value = w.description
 				}
 			}
-		case 1:
-			if i == 0 { // Flow stage selector
+		case 1, 2:
+			if w.step == 1 && i == 0 { // Flow stage selector
 				value = w.flowValue()
 				if w.field == 0 {
 					value = selectedStyle.Render(value)

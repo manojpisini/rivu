@@ -262,3 +262,57 @@ func TestSourceClassificationStep(t *testing.T) {
 		t.Fatalf("step 3 wizard = %+v", r.src)
 	}
 }
+
+// TestSourceStackStep (P4.04): Language, Template and Package manager
+// take typed values, are shown on the step, and survive into step 4.
+func TestSourceStackStep(t *testing.T) {
+	r, _ := rootOf(t)
+	r = openSource(t, r)
+	r, _ = upd(t, r, keyEnter())
+	r, _ = upd(t, r, keyEnter()) // -> Stack, Language focused
+	if r.src.step != 2 || r.src.field != 0 || !r.src.input.Focused() {
+		t.Fatalf("stack open: step=%d field=%d focused=%v", r.src.step, r.src.field, r.src.input.Focused())
+	}
+
+	v := r.View()
+	for _, want := range []string{"Source — Stack", "Language:", "Template:", "Package manager:"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+
+	// all three rows type through the shared input
+	for _, c := range "go" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	r, _ = upd(t, r, keyTab())
+	for _, c := range "go-cli" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	r, _ = upd(t, r, keyTab())
+	for _, c := range "go-mod" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	if r.src.language != "go" || r.src.template != "go-cli" || r.src.pkgManager != "go-mod" {
+		t.Fatalf("stack = %q/%q/%q", r.src.language, r.src.template, r.src.pkgManager)
+	}
+	v = r.View()
+	for _, want := range []string{"go-cli", "go-mod"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+
+	// shift+tab walks back across the rows
+	r, _ = upd(t, r, keyShiftTab())
+	if r.src.field != 1 || r.src.template != "go-cli" {
+		t.Errorf("shift+tab -> field=%d template=%q", r.src.field, r.src.template)
+	}
+
+	// values survive into Automation
+	r, _ = upd(t, r, keyTab())
+	r, _ = upd(t, r, keyEnter())
+	if r.src.step != 3 || r.src.language != "go" || r.src.template != "go-cli" || r.src.pkgManager != "go-mod" {
+		t.Fatalf("step 4 wizard = %+v", r.src)
+	}
+}
