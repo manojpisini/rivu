@@ -580,7 +580,9 @@ func (m *Model) setStage(i int) {
 		return
 	}
 	m.FlowCursor = i
-	m.Cursor = 0
+	// -1 asks applyFilter not to carry the old selection over: a stage
+	// switch browses the new stage from the top (P3.27).
+	m.Cursor = -1
 	m.applyFilter()
 }
 
@@ -590,7 +592,15 @@ func (m *Model) stepStage(delta int) {
 	m.setStage(((m.FlowCursor+delta)%n + n) % n)
 }
 
+// applyFilter rebuilds Visible from the current stage and query. The
+// selection follows the project by ID (P3.27): refresh or search that
+// reorders, shrinks or drops rows keeps the same project selected when
+// it survives, else falls back to the first row.
 func (m *Model) applyFilter() {
+	var keep string
+	if m.Cursor >= 0 && m.Cursor < len(m.Visible) {
+		keep = m.Visible[m.Cursor].ID
+	}
 	flow := flowOrder[m.FlowCursor]
 	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(m.Query)))
 	m.Visible = m.Visible[:0]
@@ -612,10 +622,14 @@ func (m *Model) applyFilter() {
 		}
 		return m.Visible[i].FlowStage < m.Visible[j].FlowStage
 	})
-	if len(m.Visible) == 0 {
-		m.Cursor = 0
-	} else if m.Cursor >= len(m.Visible) {
-		m.Cursor = len(m.Visible) - 1
+	m.Cursor = 0
+	if keep != "" {
+		for i := range m.Visible {
+			if m.Visible[i].ID == keep {
+				m.Cursor = i
+				break
+			}
+		}
 	}
 }
 
