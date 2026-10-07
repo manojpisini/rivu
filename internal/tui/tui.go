@@ -338,6 +338,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flowPickCursor = 0
 			m.Status = ""
 			return m, nil
+		case key.Matches(x, keys.Delta):
+			if m.svc == nil {
+				m.Status = "Delta unavailable: no service in this session"
+				return m, nil
+			}
+			p, ok := m.selectedProject()
+			if !ok {
+				m.Status = "Select a project to delta"
+				return m, nil
+			}
+			if p.FlowStage == "delta" {
+				m.Status = p.Name + " is already at Delta — nothing to do"
+				return m, nil
+			}
+			m.Status = "Preparing delta for " + p.Name + "…"
+			return m, deltaPlanCmd(m.svc, p.Slug)
 		case key.Matches(x, keys.Source):
 			return m, SelectScreen(ScreenSource)
 		case key.Matches(x, keys.Help):
@@ -390,7 +406,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flowPlanMsg:
 		m.Status = ""
 		if x.err != nil {
+			if x.delta {
+				return m, ShowToast(Toast{Level: "bad", Text: "cannot delta " + x.slug + ": " + x.err.Error()})
+			}
 			return m, ShowToast(Toast{Level: "bad", Text: "cannot move " + x.slug + ": " + x.err.Error()})
+		}
+		if x.delta {
+			lines := append([]string{"Move to the Delta stage — project files stay untouched"}, flowPlanLines(x.res.Plan)...)
+			svc := m.svc
+			return m, ConfirmPlan("Delta "+x.slug+"?", lines, func() tea.Cmd {
+				return deltaApplyCmd(svc, x.slug)
+			})
 		}
 		title := fmt.Sprintf("Flow %s: %s -> %s?", x.slug, x.res.Plan.FromStage, x.res.Plan.ToStage)
 		svc := m.svc
@@ -400,10 +426,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flowApplyMsg:
 		m.Status = ""
 		if x.err != nil {
+			if x.delta {
+				return m, ShowToast(Toast{Level: "bad", Text: "delta failed for " + x.slug + ": " + x.err.Error()})
+			}
 			return m, ShowToast(Toast{Level: "bad", Text: "flow failed for " + x.slug + ": " + x.err.Error()})
 		}
 		note := x.res.Note
-		if note == "" {
+		if x.delta {
+			name := x.res.Project.Name
+			if name == "" {
+				name = x.slug
+			}
+			note = "Deltaed " + name + " — project files untouched"
+		} else if note == "" {
 			note = fmt.Sprintf("%s moved to %s", x.slug, x.stage)
 		}
 		return m, tea.Batch(
@@ -599,6 +634,7 @@ func revealCmd(path string) tea.Cmd {
 type flowPlanMsg struct {
 	slug  string
 	stage string
+	delta bool // true when opened by the dedicated A delta action (P4.10)
 	res   service.FlowResult
 	err   error
 }
@@ -607,6 +643,7 @@ type flowPlanMsg struct {
 type flowApplyMsg struct {
 	slug  string
 	stage string
+	delta bool
 	res   service.FlowResult
 	err   error
 }
@@ -624,6 +661,23 @@ func flowApplyCmd(svc service.Service, slug, stage string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := svc.Flow(slug, stage, false, false)
 		return flowApplyMsg{slug: slug, stage: stage, res: res, err: err}
+	}
+}
+
+// deltaPlanCmd is flowPlanCmd through the dedicated delta path: same
+// service call, delta wording in the modal (spec 1.2.5, P4.10).
+func deltaPlanCmd(svc service.Service, slug string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.Flow(slug, "delta", false, true)
+		return flowPlanMsg{slug: slug, stage: "delta", delta: true, res: res, err: err}
+	}
+}
+
+// deltaApplyCmd is flowApplyCmd with the dedicated delta wording.
+func deltaApplyCmd(svc service.Service, slug string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.Flow(slug, "delta", false, false)
+		return flowApplyMsg{slug: slug, stage: "delta", delta: true, res: res, err: err}
 	}
 }
 
