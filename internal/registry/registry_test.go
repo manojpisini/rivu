@@ -883,3 +883,42 @@ func TestSlugOrPathTaken(t *testing.T) {
 		}
 	}
 }
+
+// TestHealthSnapshotsOldestFirstWithLimit: the sparkline reader (P4.14)
+// returns the newest rows oldest-first, honours the limit, and treats a
+// missing project as empty.
+func TestHealthSnapshotsOldestFirstWithLimit(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(t.TempDir(), "alpha"), FlowStage: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i, score := range []int{40, 70, 55} {
+		if _, err := r.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES(?,?,?,?)`,
+			fmt.Sprintf("s%d", i), "p1", score, base.Add(time.Duration(i)*24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := r.HealthSnapshots("p1", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Score != 70 || got[1].Score != 55 {
+		t.Fatalf("limited snapshots = %+v, want [70 55] oldest first", got)
+	}
+	all, err := r.HealthSnapshots("p1", 0) // default limit
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 || all[0].Score != 40 || all[2].Score != 55 {
+		t.Fatalf("all snapshots = %+v, want 3 rows in time order", all)
+	}
+	none, err := r.HealthSnapshots("missing", 10)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("missing project: %+v err=%v, want empty", none, err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -387,6 +388,39 @@ func (r *Registry) UpdatePathFlow(id, path, channel, flow string) error {
 func (r *Registry) SetHealth(id string, score int) error {
 	_, err := r.DB.Exec(`UPDATE projects SET health_score=? WHERE id=?`, score, id)
 	return err
+}
+
+// Snapshot is one health_snapshots row: a score at a point in time.
+type Snapshot struct {
+	Score   int
+	TakenAt time.Time
+}
+
+// HealthSnapshots returns the newest limit scores for a project,
+// oldest first, ready to draw as a sparkline (P4.14).
+func (r *Registry) HealthSnapshots(projectID string, limit int) ([]Snapshot, error) {
+	if limit < 1 {
+		limit = 30
+	}
+	rows, err := r.DB.Query(`SELECT score, taken_at FROM health_snapshots
+		WHERE project_id=? ORDER BY taken_at DESC, id DESC LIMIT ?`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Snapshot
+	for rows.Next() {
+		var s Snapshot
+		if err := rows.Scan(&s.Score, &s.TakenAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	slices.Reverse(out)
+	return out, nil
 }
 
 // ApplyFlow records a completed Flow move in one transaction: path,

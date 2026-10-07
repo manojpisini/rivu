@@ -18,6 +18,9 @@ type Report struct {
 	Project registry.Project
 	Checks  []Check
 	Score   int
+	// Trend is the recent health history, oldest first, filled by the
+	// service from health_snapshots for the sparkline (P4.14).
+	Trend []int
 }
 
 func ex(p string) bool { _, e := os.Stat(p); return e == nil }
@@ -61,5 +64,5 @@ func Run(p registry.Project, scaffoldMark string) Report {
 			score += c.Weight
 		}
 	}
-	return Report{p, checks, score}
+	return Report{Project: p, Checks: checks, Score: score}
 }

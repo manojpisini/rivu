@@ -562,6 +562,12 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 	for _, p := range ps {
 		r := doctor.Run(p, a.Config.Bridge.ScaffoldMark)
 		_ = a.Registry.SetHealth(p.ID, r.Score)
+		// A missing trend must not fail the health run itself (P4.14).
+		if snaps, e := a.Registry.HealthSnapshots(p.ID, 30); e == nil {
+			for _, s := range snaps {
+				r.Trend = append(r.Trend, s.Score)
+			}
+		}
 		out = append(out, r)
 	}
 	return out, nil

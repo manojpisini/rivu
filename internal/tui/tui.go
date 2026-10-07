@@ -878,6 +878,22 @@ func (m Model) actionMenuView() string {
 	return box
 }
 
+// sparkline draws scores as ▁▂▃▄▅▆▇ blocks (P4.14). Fewer than two
+// points cannot show a trend, so it renders nothing.
+func sparkline(scores []int) string {
+	if len(scores) < 2 {
+		return ""
+	}
+	const blocks = "▁▂▃▄▅▆▇█"
+	widths := []rune(blocks)
+	var b strings.Builder
+	for _, s := range scores {
+		s = max(0, min(100, s))
+		b.WriteString(string(widths[s*(len(widths)-1)/100]))
+	}
+	return b.String()
+}
+
 // listCmd re-queries the registry; Root applies projectsMsg.
 func listCmd(svc service.Service) tea.Cmd {
 	return func() tea.Msg {
@@ -1085,6 +1101,7 @@ var asciiSwap = strings.NewReplacer(
 	"╭", "+", "╮", "+", "╰", "+", "╯", "+",
 	"✓", "+", "×", "x", "•", ".",
 	"█", "#", "░", ".",
+	"▁", "_", "▂", "_", "▃", "_", "▄", "_", "▅", "_", "▆", "_", "▇", "_",
 )
 
 var (

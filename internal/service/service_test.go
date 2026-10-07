@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/manojpisini/rivu/internal/registry"
@@ -764,5 +765,41 @@ func TestScanContextCancelledBeforeCommit(t *testing.T) {
 	}
 	if len(ps) != 0 {
 		t.Errorf("cancelled scan committed %d projects, want none", len(ps))
+	}
+}
+
+// TestDoctorAttachesSnapshotTrend: health_snapshots rows ride along on
+// the Doctor report for the sparkline (P4.14), oldest first.
+func TestDoctorAttachesSnapshotTrend(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	p := registry.Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(home, "alpha"), FlowStage: "source"}
+	if err := a.Registry.Upsert(p); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	base := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	for i, score := range []int{55, 60} {
+		if _, err := a.Registry.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES(?,?,?,?)`,
+			"s"+string(rune('0'+i)), "p1", score, base.Add(time.Duration(i)*24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rs, err := a.Doctor("alpha")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if len(rs) != 1 {
+		t.Fatalf("reports = %d, want 1", len(rs))
+	}
+	if len(rs[0].Trend) != 2 || rs[0].Trend[0] != 55 || rs[0].Trend[1] != 60 {
+		t.Errorf("Trend = %v, want [55 60] oldest first", rs[0].Trend)
 	}
 }

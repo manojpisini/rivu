@@ -54,6 +54,7 @@ func TestDoctorDoneOpensHealthScreen(t *testing.T) {
 		{
 			Project: registry.Project{Name: "demo", Slug: "demo"},
 			Score:   72,
+			Trend:   []int{30, 50, 70},
 			Checks: []doctor.Check{
 				{Name: "README", OK: true, Detail: "project documentation"},
 				{Name: "CI", OK: false, Detail: "continuous integration"},
@@ -86,6 +87,10 @@ func TestDoctorDoneOpensHealthScreen(t *testing.T) {
 	}
 	if !strings.Contains(v, "█") || !strings.Contains(v, "72/100") {
 		t.Errorf("score bar missing from %q", v)
+	}
+	// the snapshot trend draws as a sparkline (P4.14)
+	if !strings.Contains(v, "trend ▃▄▅") {
+		t.Errorf("trend sparkline missing from %q", v)
 	}
 
 	// esc returns to the dashboard; ctrl+c quits

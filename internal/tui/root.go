@@ -656,6 +656,9 @@ func (r Root) doctorView() string {
 	}
 	for _, rep := range r.doctorRes {
 		b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score) + "  " + scoreBar(rep.Score) + "  " + strconv.Itoa(rep.Score) + "/100")
+		if len(rep.Trend) >= 2 {
+			b.WriteString("  " + r.styleMuted.Render("trend ") + sparkline(rep.Trend))
+		}
 		for _, c := range rep.Checks {
 			line := r.styleMuted.Render(" ✓ ") + c.Name + "  " + c.Detail
 			if !c.OK {
