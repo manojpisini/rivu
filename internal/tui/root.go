@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -166,9 +168,26 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 
 // Run starts the terminal interface over the shared service (spec
 // 1.4.4: the TUI uses the same service layer as the CLI).
-func Run(svc service.Service, cfg config.Config) error {
-	_, err := tea.NewProgram(NewRoot(svc, cfg), tea.WithAltScreen()).Run()
+//
+// Bubble Tea's default panic handling restores the terminal first, then
+// re-panics; we catch that here, write the crash report (stack included)
+// to the rotating JSON log and return a normal error so the CLI exits 1
+// with a pointer to the log instead of dying raw (P3.26).
+func Run(svc service.Service, cfg config.Config) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			logCrash(rec, &err)
+		}
+	}()
+	_, err = tea.NewProgram(NewRoot(svc, cfg), tea.WithAltScreen()).Run()
 	return err
+}
+
+// logCrash records a recovered TUI panic to the default slog logger and
+// replaces the returned error; kept separate so tests can drive it.
+func logCrash(rec any, errp *error) {
+	slog.Error("tui panic", "panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
+	*errp = fmt.Errorf("tui crashed: %v (stack trace in the Rivu log)", rec)
 }
 
 // Init loads Current and the project list asynchronously.
