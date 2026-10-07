@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,12 +78,16 @@ type (
 
 // confirm is one entry in the modal stack: a yes/no question whose
 // default answer is No (esc, enter, n and q all decline). Lines carries
-// the Plan body the modal renders; up/down scroll it.
+// the Plan body the modal renders; up/down scroll it. Require > 0
+// switches to confirm-by-typing: the user must type that exact count
+// (spec Part A: bulk flow of > 5 projects).
 type confirm struct {
-	Title  string
-	Lines  []string
-	OnYes  func() tea.Cmd
-	scroll int
+	Title   string
+	Lines   []string
+	OnYes   func() tea.Cmd
+	Require int
+	typed   string
+	scroll  int
 }
 
 // confirmVisible is how many Plan lines fit in the modal viewport.
@@ -388,9 +393,47 @@ func (r Root) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateConfirm handles the top modal; only y accepts, everything else
 // closes it without acting (default No). up/down scroll the Plan body.
+// A Require modal only accepts the typed count.
 func (r Root) updateConfirm(msg tea.KeyMsg, c confirm) (tea.Model, tea.Cmd) {
 	n := len(r.confirms) - 1
 	pop := func() { r.confirms = r.confirms[:n] }
+	if c.Require > 0 {
+		target := strconv.Itoa(c.Require)
+		switch msg.String() {
+		case "esc", "enter", "n", "q", "ctrl+c":
+			pop()
+			return r, nil
+		case "backspace":
+			if c.typed != "" {
+				r.confirms[n].typed = c.typed[:len(c.typed)-1]
+			}
+			return r, nil
+		case "up":
+			if r.confirms[n].scroll > 0 {
+				r.confirms[n].scroll--
+			}
+			return r, nil
+		case "down":
+			maxScroll := max(0, len(r.confirms[n].Lines)-confirmVisible)
+			if r.confirms[n].scroll < maxScroll {
+				r.confirms[n].scroll++
+			}
+			return r, nil
+		}
+		if s := msg.String(); len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
+			r.confirms[n].typed += s
+			if !strings.HasPrefix(target, r.confirms[n].typed) {
+				r.confirms[n].typed = s // wrong digit starts over
+			}
+			if r.confirms[n].typed == target {
+				pop()
+				if c.OnYes != nil {
+					return r, c.OnYes()
+				}
+			}
+		}
+		return r, nil // swallow every other key: y alone never applies
+	}
 	switch msg.String() {
 	case "y", "Y":
 		pop()
@@ -442,6 +485,15 @@ func Confirm(title string, onYes func() tea.Cmd) tea.Cmd {
 // default No.
 func ConfirmPlan(title string, lines []string, onYes func() tea.Cmd) tea.Cmd {
 	return func() tea.Msg { return confirmMsg{c: confirm{Title: title, Lines: lines, OnYes: onYes}} }
+}
+
+// ConfirmPlanTyped is the confirm-by-typing variant: the modal only
+// accepts when the user types exactly require (the count of affected
+// projects); y alone never applies.
+func ConfirmPlanTyped(title string, lines []string, require int, onYes func() tea.Cmd) tea.Cmd {
+	return func() tea.Msg {
+		return confirmMsg{c: confirm{Title: title, Lines: lines, OnYes: onYes, Require: require}}
+	}
 }
 
 // sourcePlanLines flattens a Source plan into the modal's body lines
@@ -620,6 +672,12 @@ func (r Root) confirmView(c confirm) string {
 		}
 	}
 	hint := "y yes   n/esc/enter no (default)"
+	if c.Require > 0 {
+		hint = fmt.Sprintf("type %d to confirm   esc no (default)", c.Require)
+		if c.typed != "" {
+			hint += "   entered: " + c.typed
+		}
+	}
 	if len(c.Lines) > confirmVisible {
 		hint += "   ↑↓ scroll"
 	}

@@ -427,6 +427,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		title := fmt.Sprintf("Flow %d projects to %s?", len(x.res.Done), x.stage)
 		svc, slugs, stage := m.svc, x.slugs, x.stage
+		// Confirm-by-typing for the riskiest bulk moves (> 5): type the
+		// count (spec Part A, P4.09).
+		if len(x.res.Done) > 5 {
+			return m, ConfirmPlanTyped(title, lines, len(x.res.Done), func() tea.Cmd {
+				return bulkFlowApplyCmd(svc, slugs, stage)
+			})
+		}
 		return m, ConfirmPlan(title, lines, func() tea.Cmd {
 			return bulkFlowApplyCmd(svc, slugs, stage)
 		})

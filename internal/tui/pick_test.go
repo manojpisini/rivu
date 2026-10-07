@@ -183,6 +183,96 @@ func TestBulkFlowAllAlreadyThere(t *testing.T) {
 	}
 }
 
+// TestBulkFlowTypedCountConfirm (P4.09): a bulk plan over > 5 projects
+// only applies once the user types the count — y alone never applies.
+func TestBulkFlowTypedCountConfirm(t *testing.T) {
+	m, f := pickFixture(t)
+	done := make([]service.FlowResult, 6)
+	m, cmd := updateC(t, m, bulkFlowPlanMsg{
+		slugs: []string{"a", "b", "c", "d", "e", "f"}, stage: "active",
+		res: service.BulkFlowResult{Done: done},
+	})
+	if cmd == nil {
+		t.Fatal("bulk plan must open the modal")
+	}
+	cm, ok := cmd().(confirmMsg)
+	if !ok || cm.c.Require != 6 {
+		t.Fatalf("confirm = %#v, want Require 6", cmd())
+	}
+	r, _ := rootOf(t)
+	r.dashboard = m
+	r, _ = upd(t, r, cm)
+	v := r.View()
+	if !strings.Contains(v, "type 6 to confirm") {
+		t.Errorf("modal missing the typed-count hint: %q", v)
+	}
+
+	// y and a wrong digit never apply
+	r, cmd2 := upd(t, r, keyR('y'))
+	if cmd2 != nil || len(r.confirms) != 1 {
+		t.Fatalf("y alone must not apply: cmd=%v confirms=%d", cmd2, len(r.confirms))
+	}
+	r, _ = upd(t, r, keyR('9'))
+	if len(r.confirms) != 1 {
+		t.Fatal("a wrong digit must not apply")
+	}
+	// typing the full count applies and runs the real bulk apply
+	r, cmd2 = upd(t, r, keyR('6'))
+	if len(r.confirms) != 0 {
+		t.Fatal("typing 6 must apply")
+	}
+	if cmd2 == nil {
+		t.Fatal("typed count must return the apply command")
+	}
+	if am, ok := cmd2().(bulkFlowApplyMsg); !ok || am.err != nil {
+		t.Fatalf("apply = %#v, want bulkFlowApplyMsg", cmd2())
+	}
+	applied := 0
+	for _, c := range f.Calls() {
+		if strings.Contains(c, "FlowBulk -> active") {
+			applied++
+		}
+	}
+	if applied != 1 {
+		t.Errorf("Calls = %v, want exactly one apply after typing 6", f.Calls())
+	}
+
+	// two-digit counts: prefix typing, backspace, then the full count
+	r, _ = upd(t, r, ConfirmPlanTyped("Flow 12?", nil, 12, func() tea.Cmd {
+		return func() tea.Msg { return flowApplyMsg{} }
+	})())
+	for _, k := range []tea.KeyMsg{keyR('1'), keyR('2')} {
+		r, cmd2 = upd(t, r, k)
+	}
+	if len(r.confirms) != 0 || cmd2 == nil {
+		t.Fatalf("typing 12 must apply: confirms=%d cmd=%v", len(r.confirms), cmd2)
+	}
+	// a divergent digit resets, backspace erases, then the full count
+	r, _ = upd(t, r, ConfirmPlanTyped("Flow 13?", nil, 13, func() tea.Cmd {
+		return func() tea.Msg { return flowApplyMsg{} }
+	})())
+	r, _ = upd(t, r, keyR('1'))
+	if len(r.confirms) != 1 {
+		t.Fatal("partial count must stay open")
+	}
+	r, _ = upd(t, r, keyR('9')) // "19" cannot prefix "13" — starts over
+	if len(r.confirms) != 1 {
+		t.Fatal("mismatched digit must not apply")
+	}
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyBackspace})
+	r, _ = upd(t, r, keyR('1'))
+	r, cmd2 = upd(t, r, keyR('3')) // "13" applies
+	if len(r.confirms) != 0 || cmd2 == nil {
+		t.Fatalf("backspace then 13 must apply: confirms=%d cmd=%v", len(r.confirms), cmd2)
+	}
+	// decline always wins
+	r, _ = upd(t, r, ConfirmPlanTyped("Flow 7?", nil, 7, nil)())
+	r, cmd2 = upd(t, r, keyEsc())
+	if len(r.confirms) != 0 || cmd2 != nil {
+		t.Fatalf("esc must decline: confirms=%d cmd=%v", len(r.confirms), cmd2)
+	}
+}
+
 // countCalls counts entries containing sub.
 func countCalls(calls []string, sub string) int {
 	n := 0
