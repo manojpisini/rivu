@@ -100,6 +100,7 @@ type Root struct {
 	screen Screen
 
 	dashboard    Model
+	src          sourceWizard
 	current      registry.Project
 	hasCurrent   bool
 	toasts       []Toast
@@ -228,6 +229,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return nr, tea.Batch(cmd, tea.SetWindowTitle(windowTitle(r.dashboard.Current.Name, r.hasCurrent)))
 	case SelectScreenMsg:
 		r.screen = x.Screen
+		if x.Screen == ScreenSource {
+			// Every entry starts a fresh wizard (P4.01).
+			r.src = sourceWizard{}
+			r.dashboard.Status = ""
+		}
 		return r, nil
 	case projectsMsg:
 		if x.err != nil {
@@ -310,6 +316,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if x.String() == "e" && len(r.errs) > 0 && !r.dashboard.search.Focused() {
 			r.errExpand = true
 			return r, nil
+		}
+		if r.screen == ScreenSource {
+			return r.updateSource(x)
 		}
 		if r.screen != ScreenDashboard {
 			// Sub-screens: esc/q go back, ctrl+c quits, everything else
@@ -456,6 +465,8 @@ func (r Root) render() string {
 	switch r.screen {
 	case ScreenDashboard:
 		body = r.dashboard.View()
+	case ScreenSource:
+		body = r.sourceView()
 	case ScreenHealth:
 		body = r.doctorView()
 	default:

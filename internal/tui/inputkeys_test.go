@@ -32,7 +32,7 @@ func TestGlobalKeysInertWhileInputFocused(t *testing.T) {
 	if !m.search.Focused() {
 		t.Fatal("global keys must not blur the input")
 	}
-	want := "qrdhmgG1/af?"
+	want := "qrdhmgG1/afn?"
 	if m.Query != want {
 		t.Fatalf("query = %q, want every key typed verbatim (%q)", m.Query, want)
 	}

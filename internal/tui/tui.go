@@ -318,6 +318,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flowPickCursor = 0
 			m.Status = ""
 			return m, nil
+		case key.Matches(x, keys.Source):
+			return m, SelectScreen(ScreenSource)
 		case key.Matches(x, keys.Help):
 			m.helpOpen = true
 			return m, nil
