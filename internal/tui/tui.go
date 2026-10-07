@@ -54,6 +54,7 @@ type Model struct {
 	spin           spinner.Model
 	flowPick       bool
 	flowPickCursor int
+	helpOpen       bool
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
@@ -93,6 +94,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Query = m.search.Value()
 				m.applyFilter()
 				return m, cmd
+			}
+			return m, nil
+		}
+
+		// The help overlay owns the keyboard until ?/esc.
+		if m.helpOpen {
+			switch x.String() {
+			case "?", "esc":
+				m.helpOpen = false
+			case "ctrl+c":
+				return m, tea.Quit
 			}
 			return m, nil
 		}
@@ -270,6 +282,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flowPick = true
 			m.flowPickCursor = 0
 			m.Status = ""
+			return m, nil
+		case key.Matches(x, keys.Help):
+			m.helpOpen = true
 			return m, nil
 		}
 	case spinner.TickMsg:
@@ -467,6 +482,21 @@ func (m Model) flowPickConfirm() (tea.Model, tea.Cmd) {
 	return m, flowPlanCmd(m.svc, p.Slug, stage)
 }
 
+// helpView renders the full keymap through bubbles/help (ShowAll), in
+// the standard panel, centred; ? or esc closes it.
+func (m Model) helpView() string {
+	m.help.ShowAll = true
+	if m.help.Width == 0 {
+		m.help.Width = m.Width
+	}
+	box := panelStyle.Render(titleStyle.Render("KEYS") + "\n\n" + m.help.View(keys) +
+		"\n\n" + mutedStyle.Render("? or esc to close"))
+	if m.Width > 0 && m.Height > 0 {
+		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
+}
+
 // flowPickerView centres the stage list: up/down choose, enter builds
 // the Plan, esc cancels. Current stage is marked, not hidden.
 func (m Model) flowPickerView() string {
@@ -653,6 +683,9 @@ func (m Model) View() string {
 	}
 	if m.Width < 60 || m.Height < 15 {
 		return tooSmall(m.Width, m.Height)
+	}
+	if m.helpOpen {
+		return m.helpView()
 	}
 	if m.DetailFull {
 		if _, ok := m.selectedProject(); ok {

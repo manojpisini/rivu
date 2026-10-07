@@ -19,6 +19,7 @@ func TestGlobalKeysInertWhileInputFocused(t *testing.T) {
 	for _, k := range []tea.KeyMsg{
 		runeKey("q"), runeKey("r"), runeKey("d"), runeKey("h"),
 		runeKey("m"), runeKey("g"), runeKey("G"), runeKey("1"), runeKey("/"),
+		runeKey("a"), runeKey("f"), runeKey("?"),
 	} {
 		nm, cmd := m.Update(k)
 		if cmd != nil {
@@ -31,7 +32,7 @@ func TestGlobalKeysInertWhileInputFocused(t *testing.T) {
 	if !m.search.Focused() {
 		t.Fatal("global keys must not blur the input")
 	}
-	want := "qrdhmgG1/"
+	want := "qrdhmgG1/af?"
 	if m.Query != want {
 		t.Fatalf("query = %q, want every key typed verbatim (%q)", m.Query, want)
 	}
