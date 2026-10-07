@@ -12,7 +12,10 @@ func TestVersionPlain(t *testing.T) {
 	c := versionCmd("1.2.3", "abc1234", "2026-01-02")
 	c.SetOut(&buf)
 	c.SetErr(&buf)
-	c.SetArgs(nil)
+	// non-nil empty: SetArgs(nil) makes cobra fall back to os.Args[1:],
+	// so stray test-binary flags would fail the parse (see pflag's
+	// -test.* skip — anything else, e.g. a bare -count=1, errors)
+	c.SetArgs([]string{})
 	if err := c.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
