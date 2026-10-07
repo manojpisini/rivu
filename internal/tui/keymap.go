@@ -16,6 +16,12 @@ type keyMap struct {
 	Down         key.Binding
 	Top          key.Binding
 	Bottom       key.Binding
+	PageUp       key.Binding
+	PageDown     key.Binding
+	HalfUp       key.Binding
+	HalfDown     key.Binding
+	Home         key.Binding
+	End          key.Binding
 	Refresh      key.Binding
 	Open         key.Binding
 	Detail       key.Binding
@@ -38,7 +44,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 // FullHelp feeds the future help screen (spec 3.x); grouped by column.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.SwitchPanel, k.Up, k.Down, k.Top, k.Bottom, k.StageDigit, k.StagePrev, k.StageNext},
+		{k.SwitchPanel, k.Up, k.Down, k.PageUp, k.PageDown, k.HalfUp, k.HalfDown, k.Top, k.Bottom, k.Home, k.End, k.StageDigit, k.StagePrev, k.StageNext},
 		{k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Refresh, k.Copy, k.Reveal},
 		{k.Help, k.Quit},
 	}
@@ -55,6 +61,12 @@ var keys = keyMap{
 	Down:         key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("j", "down")),
 	Top:          key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "top")),
 	Bottom:       key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
+	PageUp:       key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+	PageDown:     key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
+	HalfUp:       key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "half up")),
+	HalfDown:     key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "half down")),
+	Home:         key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "first row")),
+	End:          key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "last row")),
 	Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 	Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 	Detail:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail")),

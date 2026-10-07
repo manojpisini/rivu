@@ -211,6 +211,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.Visible) > 0 {
 				m.Cursor = len(m.Visible) - 1
 			}
+		case key.Matches(x, keys.PageDown):
+			m.moveCursor(m.listRows())
+		case key.Matches(x, keys.PageUp):
+			m.moveCursor(-m.listRows())
+		case key.Matches(x, keys.HalfDown):
+			m.moveCursor(m.listRows() / 2)
+		case key.Matches(x, keys.HalfUp):
+			m.moveCursor(-m.listRows() / 2)
+		case key.Matches(x, keys.Home):
+			m.Cursor = 0
+		case key.Matches(x, keys.End):
+			if len(m.Visible) > 0 {
+				m.Cursor = len(m.Visible) - 1
+			}
 		case key.Matches(x, keys.Refresh):
 			if m.scanning {
 				m.Status = "Scan already running - esc cancels it"
@@ -924,6 +938,25 @@ func padStartCell(s string, w int) string {
 	}
 	s = "…" + s
 	return padCell(s, w)
+}
+
+// listRows mirrors projectPanel's virtualisation: how many table rows
+// fit at the current window size (P3.30 page motions use the same
+// number the renderer shows).
+func (m Model) listRows() int {
+	body := max(10, m.Height-lipgloss.Height(m.header())-lipgloss.Height(m.footer())-1)
+	return max(1, body-6)
+}
+
+// moveCursor steps the list by delta rows, clamped to the visible set;
+// page and half-page motions drive the list regardless of sidebar
+// focus (the sidebar only has six stages — a page is meaningless there).
+func (m *Model) moveCursor(delta int) {
+	if len(m.Visible) == 0 {
+		m.Cursor = 0
+		return
+	}
+	m.Cursor = clamp(m.Cursor+delta, 0, len(m.Visible)-1)
 }
 
 func (m Model) projectPanel(width, height int) string {
