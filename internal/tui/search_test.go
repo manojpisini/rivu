@@ -66,8 +66,10 @@ func TestSearchTextInputFlow(t *testing.T) {
 		t.Fatal("/ must open search")
 	}
 	for _, r := range "slug:riv" {
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, _ = updateC(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
+	// The filter is debounced (P3.36): the pending tick applies it.
+	m, _ = updateC(t, m, searchTickMsg{gen: m.searchGen})
 	if m.Query != "slug:riv" {
 		t.Fatalf("input value = %q, want slug:riv", m.Query)
 	}

@@ -32,6 +32,17 @@ import (
 
 const allFlow = "all"
 
+// searchDebounce is how long typing must pause before the filter runs
+// (P3.36); long enough to coalesce bursts, short enough to feel live.
+const searchDebounce = 80 * time.Millisecond
+
+// searchTickMsg applies the debounced filter; gen stale ticks are ignored.
+type searchTickMsg struct{ gen int }
+
+func searchDebounceCmd(gen int) tea.Cmd {
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg { return searchTickMsg{gen: gen} })
+}
+
 var flowOrder = []string{allFlow, "source", "active", "maintenance", "research", "delta"}
 
 type Model struct {
@@ -61,6 +72,7 @@ type Model struct {
 	flowPick       bool
 	flowPickCursor int
 	helpOpen       bool
+	searchGen      int // debounces the filter while typing (P3.36)
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
@@ -94,12 +106,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyFilter()
 			case "enter":
 				m.search.Blur()
+				m.applyFilter() // confirm shows the results immediately
 			default:
 				in, cmd := m.search.Update(msg)
 				m.search = in
 				m.Query = m.search.Value()
-				m.applyFilter()
-				return m, cmd
+				// Filter after a ~80ms typing pause instead of on every
+				// keystroke (P3.36): a stale tick is ignored by gen.
+				m.searchGen++
+				return m, tea.Batch(cmd, searchDebounceCmd(m.searchGen))
 			}
 			return m, nil
 		}
@@ -329,6 +344,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scanDirs = int(m.scanCount.Load())
 		}
 		return m, next
+	case searchTickMsg:
+		if x.gen == m.searchGen {
+			m.applyFilter()
+		}
 	case scanDoneMsg:
 		return m.applyScanDone(x)
 	case editorDoneMsg:
