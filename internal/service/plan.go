@@ -76,6 +76,17 @@ type MapStatus struct {
 	MapStale      bool
 }
 
+// MapPreview is the Map report payload (P4.15): the on-disk bodies,
+// what a rebuild would change, and a unified-style diff against disk.
+type MapPreview struct {
+	Project       registry.Project
+	AgentsBody    string // on-disk AGENTS.md, "" when missing
+	MapBody       string // on-disk PROJECT_MAP.md, "" when missing
+	AgentsMissing bool
+	MapStale      bool
+	Diff          []string
+}
+
 // BulkMapResult is the typed outcome of MapBulk, mirroring
 // BulkFlowResult.
 type BulkMapResult struct {

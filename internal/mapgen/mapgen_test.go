@@ -163,3 +163,22 @@ func TestProjectMapGolden(t *testing.T) {
 		t.Errorf("PROJECT_MAP.md mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
+
+func TestDiffMarksChangedLines(t *testing.T) {
+	got := Diff("a\nb\nc\n", "a\nx\nc\n")
+	want := []string{"  a", "- b", "+ x", "  c"}
+	if len(got) != len(want) {
+		t.Fatalf("Diff = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Diff[%d] = %q, want %q (full %#v)", i, got[i], want[i], got)
+		}
+	}
+	if got := Diff("", "one\n"); len(got) != 1 || got[0] != "+ one" {
+		t.Fatalf("Diff(empty, one) = %#v, want every line added", got)
+	}
+	if got := Diff("same\n", "same\n"); len(got) != 1 || got[0] != "  same" {
+		t.Fatalf("Diff(identical) = %#v, want context only", got)
+	}
+}

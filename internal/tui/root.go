@@ -115,6 +115,9 @@ type Root struct {
 	errExpand    bool
 	doctorRes    []doctor.Report
 	doctorQ      string
+	mapPrev      service.MapPreview // Map report payload (P4.15)
+	mapQ         string
+	mapScroll    int
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -267,6 +270,19 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.dashboard = nm.(Model)
 		return r, cmd
 	case mapDoneMsg:
+		if r.screen == ScreenMap {
+			// Rebuild from inside the report: toast like the dashboard
+			// path, then refresh the preview and HasMap flags together.
+			r.dashboard.Status = ""
+			if x.err != nil {
+				return r.pushToast(Toast{Level: "bad", Text: "agent map failed for " + x.q + ": " + x.err.Error()})
+			}
+			return r, tea.Batch(
+				ShowToast(Toast{Level: "good", Text: "agent map built for " + x.q}),
+				mapPreviewCmd(r.svc, x.q),
+				r.loadProjects(),
+			)
+		}
 		nm, cmd := r.dashboard.Update(x)
 		r.dashboard = nm.(Model)
 		return r, cmd
@@ -329,6 +345,15 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.doctorRes, r.doctorQ = x.reports, x.q
 		r.screen = ScreenHealth
 		return r, nil
+	case mapPreviewMsg:
+		r.dashboard.Status = ""
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not open the map report: " + x.err.Error()})
+		}
+		r.mapPrev, r.mapQ = x.prev, x.q
+		r.mapScroll = 0
+		r.screen = ScreenMap
+		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
@@ -372,6 +397,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return r, nil
 			case "ctrl+c":
 				return r, tea.Quit
+			}
+			if r.screen == ScreenMap {
+				return r.mapKeys(x)
 			}
 			return r, nil
 		}
@@ -559,6 +587,8 @@ func (r Root) render() string {
 		body = r.sourceView()
 	case ScreenHealth:
 		body = r.doctorView()
+	case ScreenMap:
+		body = r.mapReportView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))
@@ -677,6 +707,94 @@ func (r Root) doctorView() string {
 	}
 	b.WriteString("\n\n" + r.styleMuted.Render("esc back · rivu doctor for full output"))
 	return b.String()
+}
+
+// mapKeys gives the Map report its own keys (P4.15): scroll the
+// preview, "a" rebuilds the map and reloads the report.
+func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch x.String() {
+	case "a":
+		if r.svc == nil {
+			return r.pushToast(Toast{Level: "bad", Text: "Agent map unavailable: no service in this session"})
+		}
+		return r, tea.Batch(mapCmd(r.svc, r.mapQ), mapPreviewCmd(r.svc, r.mapQ))
+	case "up", "k":
+		r.mapScroll = max(0, r.mapScroll-1)
+	case "down", "j":
+		r.mapScroll++
+	case "pgup":
+		r.mapScroll = max(0, r.mapScroll-10)
+	case "pgdown":
+		r.mapScroll += 10
+	case "g":
+		r.mapScroll = 0
+	case "G":
+		r.mapScroll = 1 << 30 // clamped against the content at render
+	}
+	return r, nil
+}
+
+// mapLines is the scrollable body of the Map report: both on-disk
+// files plus the diff a rebuild would apply (P4.15).
+func (r Root) mapLines() []string {
+	var lines []string
+	lines = append(lines, "PROJECT_MAP.md")
+	if r.mapPrev.MapBody == "" {
+		lines = append(lines, "(missing - press a to rebuild)")
+	} else {
+		lines = append(lines, fileLines(r.mapPrev.MapBody)...)
+	}
+	if r.mapPrev.MapStale && len(r.mapPrev.Diff) > 0 {
+		lines = append(lines, "", "DIFF vs disk (a rebuilds):")
+		lines = append(lines, r.mapPrev.Diff...)
+	}
+	lines = append(lines, "", "AGENTS.md (create-if-missing, never overwritten)")
+	if r.mapPrev.AgentsBody == "" {
+		lines = append(lines, "(missing - press a to create)")
+	} else {
+		lines = append(lines, fileLines(r.mapPrev.AgentsBody)...)
+	}
+	return lines
+}
+
+// mapReportView is the Map report screen (spec screen 8): a preview of
+// PROJECT_MAP.md/AGENTS.md with a diff against disk, scrollable.
+func (r Root) mapReportView() string {
+	var b strings.Builder
+	line := "MAP - " + r.mapPrev.Project.Name + "  "
+	if r.mapPrev.MapStale {
+		line += r.styleErr.Render("map: stale")
+	} else {
+		line += r.styleMuted.Render("map: ok")
+	}
+	line += "  "
+	if r.mapPrev.AgentsMissing {
+		line += r.styleErr.Render("agents: missing")
+	} else {
+		line += r.styleMuted.Render("agents: present")
+	}
+	b.WriteString(r.styleTitle.Render(line))
+
+	lines := r.mapLines()
+	rows := max(5, r.height-6)
+	if r.height == 0 {
+		rows = 20
+	}
+	start := min(max(r.mapScroll, 0), max(0, len(lines)-rows))
+	for _, ln := range lines[start:min(start+rows, len(lines))] {
+		if r.width > 0 {
+			ln = shorten(ln, max(1, r.width-4))
+		}
+		b.WriteString("\n" + ln)
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render(fmt.Sprintf(
+		"line %d/%d - up/down scroll - a rebuild - esc back", start+1, len(lines))))
+	return b.String()
+}
+
+// fileLines splits file content into lines without a trailing blank.
+func fileLines(s string) []string {
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }
 
 func (r Root) toastView(t Toast) string {

@@ -8,9 +8,9 @@ import (
 	"github.com/manojpisini/rivu/internal/registry"
 )
 
-func TestMapKeyIsAAndBuildsForSelection(t *testing.T) {
+func TestMapKeyOpensReportForSelection(t *testing.T) {
 	if !key.Matches(runeKey("a"), keys.Map) {
-		t.Fatal("a must be the build-map key (spec 3.9)")
+		t.Fatal("a must be the map-report key (spec 3.9)")
 	}
 	if key.Matches(runeKey("m"), keys.Map) {
 		t.Fatal("m must no longer be bound to build map")
@@ -18,16 +18,20 @@ func TestMapKeyIsAAndBuildsForSelection(t *testing.T) {
 	m, f := scanFixture(t)
 	m, cmd := updateC(t, m, runeKey("a"))
 	if cmd == nil {
-		t.Fatal("map build must run asynchronously")
+		t.Fatal("map report must load asynchronously")
 	}
-	if !strings.Contains(m.Status, "Building agent map") {
+	if !strings.Contains(m.Status, "Loading map report") {
 		t.Fatalf("Status = %q, want progress notice", m.Status)
 	}
-	if msg := cmd(); msg.(mapDoneMsg).q != "a" {
-		t.Fatalf("q = %q, want the selected slug", msg.(mapDoneMsg).q)
+	pm, ok := cmd().(mapPreviewMsg)
+	if !ok || pm.q != "a" {
+		t.Fatalf("cmd = %#v, want mapPreviewMsg for the selected slug", cmd())
 	}
-	if !contains(f.Calls(), "Map a") {
-		t.Errorf("Calls = %v, want Map a", f.Calls())
+	if !contains(f.Calls(), "MapPreview a") {
+		t.Errorf("Calls = %v, want MapPreview a", f.Calls())
+	}
+	if contains(f.Calls(), "Map a") {
+		t.Errorf("Calls = %v, opening the report must not build yet", f.Calls())
 	}
 }
 

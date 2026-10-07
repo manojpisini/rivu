@@ -102,3 +102,86 @@ func list(v []string) string {
 	}
 	return strings.TrimSpace(b.String())
 }
+
+// Diff compares the on-disk body with a fresh render and returns
+// unified-style lines ("  " context, "-" disk, "+" generated) for the
+// Map report (P4.15). Empty input is no lines, not one blank line.
+func Diff(disk, want string) []string {
+	a, b := diffLines(disk), diffLines(want)
+	// Trim the common edges first: map bodies share most lines, and the
+	// LCS below is O(n*m) over what remains. The trimmed edges still go
+	// back into the output as context.
+	p := 0
+	for p < len(a) && p < len(b) && a[p] == b[p] {
+		p++
+	}
+	s := 0
+	for s < len(a)-p && s < len(b)-p && a[len(a)-1-s] == b[len(b)-1-s] {
+		s++
+	}
+	head, tail := a[:p], a[len(a)-s:]
+	a, b = a[p:len(a)-s], b[p:len(b)-s]
+	m, n := len(a), len(b)
+	var mid []string
+	if m*n > 4_000_000 {
+		// ponytail: replace-all fallback for absurd inputs; upgrade to a
+		// Myers diff only if real maps ever hit this ceiling
+		mid = make([]string, 0, m+n)
+		for _, l := range a {
+			mid = append(mid, "- "+l)
+		}
+		for _, l := range b {
+			mid = append(mid, "+ "+l)
+		}
+	} else {
+		lcs := make([][]int, m+1)
+		for i := range lcs {
+			lcs[i] = make([]int, n+1)
+		}
+		for i := m - 1; i >= 0; i-- {
+			for j := n - 1; j >= 0; j-- {
+				if a[i] == b[j] {
+					lcs[i][j] = lcs[i+1][j+1] + 1
+				} else {
+					lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+				}
+			}
+		}
+		var i, j int
+		for i < m && j < n {
+			switch {
+			case a[i] == b[j]:
+				mid = append(mid, "  "+a[i])
+				i, j = i+1, j+1
+			case lcs[i+1][j] >= lcs[i][j+1]:
+				mid = append(mid, "- "+a[i])
+				i++
+			default:
+				mid = append(mid, "+ "+b[j])
+				j++
+			}
+		}
+		for ; i < m; i++ {
+			mid = append(mid, "- "+a[i])
+		}
+		for ; j < n; j++ {
+			mid = append(mid, "+ "+b[j])
+		}
+	}
+	out := make([]string, 0, len(head)+len(mid)+len(tail))
+	for _, l := range head {
+		out = append(out, "  "+l)
+	}
+	out = append(out, mid...)
+	for _, l := range tail {
+		out = append(out, "  "+l)
+	}
+	return out
+}
+
+func diffLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}

@@ -46,6 +46,7 @@ type Service interface {
 	FlowBulk(queries []string, to string, flatten, dry bool) (BulkFlowResult, error)
 	Map(q string) error
 	MapStatus(q string, all bool) ([]MapStatus, error)
+	MapPreview(q string) (MapPreview, error)
 	MapBulk() (BulkMapResult, error)
 	OpenProject(q, editor string) error
 	OpenCommand(q, editor string) ([]string, error)
@@ -609,6 +610,35 @@ func (a *App) MapStatus(q string, all bool) ([]MapStatus, error) {
 		out = append(out, MapStatus{Project: p, AgentsMissing: missing, MapStale: stale})
 	}
 	return out, nil
+}
+
+// MapPreview reads the on-disk agent files and diffs PROJECT_MAP.md
+// against a fresh render — the read side of the Map report (P4.15).
+// It writes nothing; staleness mirrors mapgen.Status so "what the
+// report shows" always equals "what a rebuild would change".
+func (a *App) MapPreview(q string) (MapPreview, error) {
+	p, err := a.Registry.Resolve(q)
+	if err != nil {
+		return MapPreview{}, err
+	}
+	dir := filepath.Join(p.Path, ".metadata", "agent")
+	agentsDisk, agentsErr := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	mapDisk, mapErr := os.ReadFile(filepath.Join(dir, "PROJECT_MAP.md"))
+	_, want := mapgen.Content(p, a.Config.Scanner.Ignore)
+	missing := agentsErr != nil
+	stale := mapErr != nil || string(mapDisk) != want
+	var diff []string
+	if stale {
+		diff = mapgen.Diff(string(mapDisk), want)
+	}
+	return MapPreview{
+		Project:       p,
+		AgentsBody:    string(agentsDisk),
+		MapBody:       string(mapDisk),
+		AgentsMissing: missing,
+		MapStale:      stale,
+		Diff:          diff,
+	}, nil
 }
 
 // MapBulk builds the Map for every project, continuing past failures so

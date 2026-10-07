@@ -344,11 +344,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			p, ok := m.selectedProject()
 			if !ok {
-				m.Status = "Select a project to build its agent map"
+				m.Status = "Select a project to open its map report"
 				return m, nil
 			}
-			m.Status = "Building agent map…"
-			return m, mapCmd(m.svc, p.Slug)
+			m.Status = "Loading map report for " + p.Name + "…"
+			return m, mapPreviewCmd(m.svc, p.Slug)
 		case key.Matches(x, keys.Flow):
 			if m.svc == nil {
 				m.Status = "Flow unavailable: no service in this session"
@@ -629,6 +629,21 @@ type mapDoneMsg struct {
 func mapCmd(svc service.Service, q string) tea.Cmd {
 	return func() tea.Msg {
 		return mapDoneMsg{q: q, err: svc.Map(q)}
+	}
+}
+
+// mapPreviewMsg carries the Map report payload (P4.15).
+type mapPreviewMsg struct {
+	q    string
+	prev service.MapPreview
+	err  error
+}
+
+// mapPreviewCmd loads the Map report for q off the UI thread.
+func mapPreviewCmd(svc service.Service, q string) tea.Cmd {
+	return func() tea.Msg {
+		prev, err := svc.MapPreview(q)
+		return mapPreviewMsg{q: q, prev: prev, err: err}
 	}
 }
 

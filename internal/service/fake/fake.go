@@ -15,24 +15,26 @@ import (
 // and *Err fields, then assert on Calls. Reads (List, Current) are not
 // recorded so View-style polling does not flood the log.
 type Service struct {
-	Projects    []registry.Project
-	ScanRes     service.ScanResult
-	ScanErr     error
-	DoctorRes   []doctor.Report
-	DoctorErr   error
-	SourceRes   service.SourceResult
-	SourceErr   error
-	FlowRes     service.FlowResult
-	FlowErr     error
-	MapErr      error
-	MapStatuses []service.MapStatus
-	StatsRes    service.Stats
-	StatsErr    error
-	DashRes     service.Dashboard
-	IndexRes    service.IndexResult
-	OpenErr     error
-	CurrentP    registry.Project
-	HasCurrent  bool
+	Projects      []registry.Project
+	ScanRes       service.ScanResult
+	ScanErr       error
+	DoctorRes     []doctor.Report
+	DoctorErr     error
+	SourceRes     service.SourceResult
+	SourceErr     error
+	FlowRes       service.FlowResult
+	FlowErr       error
+	MapErr        error
+	MapStatuses   []service.MapStatus
+	MapPreviewRes service.MapPreview
+	MapPreviewErr error
+	StatsRes      service.Stats
+	StatsErr      error
+	DashRes       service.Dashboard
+	IndexRes      service.IndexResult
+	OpenErr       error
+	CurrentP      registry.Project
+	HasCurrent    bool
 
 	mu    sync.Mutex
 	calls []string
@@ -124,6 +126,13 @@ func (f *Service) Map(q string) error {
 
 func (f *Service) MapStatus(q string, all bool) ([]service.MapStatus, error) {
 	return f.MapStatuses, f.MapErr
+}
+
+// MapPreview serves the canned Map report (P4.15) and records the read
+// so tests can assert which slug the screen opened for.
+func (f *Service) MapPreview(q string) (service.MapPreview, error) {
+	f.record("MapPreview " + q)
+	return f.MapPreviewRes, f.MapPreviewErr
 }
 
 func (f *Service) MapBulk() (service.BulkMapResult, error) {

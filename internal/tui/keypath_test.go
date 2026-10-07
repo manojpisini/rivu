@@ -39,7 +39,7 @@ func TestActionGuardsExplainThemselves(t *testing.T) {
 		want string
 	}{
 		{"h", "Running health checks"}, // doctor with nothing selected checks ALL — no guard
-		{"a", "Select a project to build its agent map"},
+		{"a", "Select a project to open its map report"},
 		{"o", "Select a project to reveal its folder"},
 		{"f", "Select a project to flow"},
 	} {

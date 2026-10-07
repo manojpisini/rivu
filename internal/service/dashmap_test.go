@@ -294,3 +294,52 @@ func TestOpenCommandArgv(t *testing.T) {
 		t.Errorf("OpenCommand(ghost) = %v, want ErrNotFound", err)
 	}
 }
+
+// TestMapPreviewDiffAndMissing: a clean project previews with no changes;
+// a dirty one reports the on-disk body plus the diff a rebuild applies
+// (P4.15).
+func TestMapPreviewDiffAndMissing(t *testing.T) {
+	a := openTestApp(t)
+	seeded := seedProjects(t, a, "p1")
+	p1 := seeded["p1"]
+
+	pv, err := a.MapPreview("p1")
+	if err != nil {
+		t.Fatalf("MapPreview: %v", err)
+	}
+	if pv.MapBody == "" || pv.AgentsBody == "" || pv.MapStale || pv.AgentsMissing || len(pv.Diff) != 0 {
+		t.Fatalf("clean preview = %+v, want both bodies with no changes", pv)
+	}
+	if pv.Project.Slug != "p1" {
+		t.Errorf("Project = %q, want p1", pv.Project.Slug)
+	}
+
+	// junk the map and drop AGENTS.md
+	agentDir := filepath.Join(p1.Path, ".metadata", "agent")
+	if err := os.WriteFile(filepath.Join(agentDir, "PROJECT_MAP.md"), []byte("junk"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(agentDir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	pv, err = a.MapPreview("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pv.AgentsMissing || !pv.MapStale || pv.MapBody != "junk" || pv.AgentsBody != "" {
+		t.Fatalf("dirty preview = %+v, want missing agents and stale junk map", pv)
+	}
+	found := false
+	for _, l := range pv.Diff {
+		if l == "- junk" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Diff = %#v, want the junk line removed", pv.Diff)
+	}
+
+	if _, err := a.MapPreview("ghost"); !errors.Is(err, registry.ErrNotFound) {
+		t.Errorf("MapPreview(ghost) = %v, want ErrNotFound", err)
+	}
+}
