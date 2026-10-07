@@ -73,8 +73,8 @@ func TestSourceWizardScaffold(t *testing.T) {
 
 	// esc cancels everything; the wizard resets
 	r, _ = upd(t, r, keyEsc())
-	if r.screen != ScreenDashboard || r.src != (sourceWizard{}) {
-		t.Errorf("esc: screen=%s src=%+v", screenNames[r.screen], r.src)
+	if r.screen != ScreenDashboard || r.src.step != 0 || r.src.field != 0 || r.src.name != "" {
+		t.Errorf("esc: screen=%s src step=%d field=%d name=%q", screenNames[r.screen], r.src.step, r.src.field, r.src.name)
 	}
 
 	// ctrl+s on a mid step teaches the way forward
@@ -84,8 +84,10 @@ func TestSourceWizardScaffold(t *testing.T) {
 		t.Errorf("ctrl+s status = %q", r.dashboard.Status)
 	}
 
-	// q also cancels
+	// q also cancels — but only on a read-only field; on a focused
+	// field it types (a name may contain q), so blur first with tab.
 	r, _ = upd(t, r, keyEnter())
+	r, _ = upd(t, r, keyTab())
 	r, _ = upd(t, r, keyR('q'))
 	if r.screen != ScreenDashboard || r.src.step != 0 {
 		t.Errorf("q: screen=%s src=%+v", screenNames[r.screen], r.src)
@@ -108,7 +110,76 @@ func TestSourceWizardFreshOnOpen(t *testing.T) {
 	r, _ = upd(t, r, keyTab())
 	r, _ = upd(t, r, keyEsc())
 	r = openSource(t, r)
-	if r.src != (sourceWizard{}) {
+	if r.src.step != 0 || r.src.field != 0 || r.src.name != "" || r.src.description != "" {
 		t.Errorf("reopened wizard = %+v, want fresh", r.src)
+	}
+	if !r.src.input.Focused() {
+		t.Error("reopened wizard must focus Name")
+	}
+}
+
+// TestSourceIdentityStep (P4.02): typed name with live slug preview
+// and inline validation, read-only Slug, editable Description, values
+// kept when the step advances.
+func TestSourceIdentityStep(t *testing.T) {
+	r, _ := rootOf(t)
+	r = openSource(t, r)
+
+	// fresh wizard teaches the missing field
+	if !strings.Contains(r.View(), "Name is required") {
+		t.Fatal("fresh wizard missing the required-name hint")
+	}
+
+	// typing captures live (the name contains q: it must type, not cancel)
+	for _, c := range "quiet repo" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	if r.src.name != "quiet repo" {
+		t.Fatalf("name = %q, want %q", r.src.name, "quiet repo")
+	}
+	v := r.View()
+	if !strings.Contains(v, "quiet-repo") {
+		t.Errorf("view missing live slug preview: %q", v)
+	}
+	if strings.Contains(v, "Name is required") {
+		t.Error("hint must clear once a name exists")
+	}
+
+	// Slug is a preview: the field blurs and stray keys are inert
+	r, _ = upd(t, r, keyTab())
+	if r.src.input.Focused() {
+		t.Fatal("Slug must be read-only")
+	}
+	r, _ = upd(t, r, keyR('x'))
+	if r.src.name != "quiet repo" {
+		t.Errorf("typing on Slug changed name to %q", r.src.name)
+	}
+
+	// Description takes the typed value
+	r, _ = upd(t, r, keyTab())
+	if !r.src.input.Focused() {
+		t.Fatal("Description must be focused")
+	}
+	for _, c := range "does things" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	if r.src.description != "does things" {
+		t.Fatalf("description = %q", r.src.description)
+	}
+
+	// enter keeps Identity values on step 2
+	r, _ = upd(t, r, keyEnter())
+	if r.src.step != 1 || r.src.name != "quiet repo" || r.src.description != "does things" {
+		t.Fatalf("step 2 wizard = %+v", r.src)
+	}
+
+	// a name slug.Make rejects gets the inline explanation
+	r, _ = upd(t, r, keyEsc())
+	r = openSource(t, r)
+	for _, c := range "a/b" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	if !strings.Contains(r.View(), "Name cannot be used as a project slug") {
+		t.Errorf("invalid name missing hint: %q", r.View())
 	}
 }

@@ -231,7 +231,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.screen = x.Screen
 		if x.Screen == ScreenSource {
 			// Every entry starts a fresh wizard (P4.01).
-			r.src = sourceWizard{}
+			r.src = newSourceWizard()
 			r.dashboard.Status = ""
 		}
 		return r, nil
