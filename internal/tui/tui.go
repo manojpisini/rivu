@@ -72,6 +72,8 @@ type Model struct {
 	spin           spinner.Model
 	flowPick       bool
 	flowPickCursor int
+	actionMenu     bool
+	actionCursor   int
 	helpOpen       bool
 	searchGen      int // debounces the filter while typing (P3.36)
 }
@@ -146,6 +148,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.flowPickConfirm()
 			case x.String() == "esc":
 				m.flowPick = false
+				m.Status = ""
+			}
+			return m, nil
+		}
+
+		// The actions menu owns the keyboard until enter/esc (spec 3.9, P4.11).
+		if m.actionMenu {
+			switch {
+			case key.Matches(x, keys.Up):
+				if m.actionCursor > 0 {
+					m.actionCursor--
+				}
+			case key.Matches(x, keys.Down):
+				if m.actionCursor < len(actionItems)-1 {
+					m.actionCursor++
+				}
+			case key.Matches(x, keys.SearchDone):
+				m.actionMenu = false
+				return m.Update(actionKeyMsg(actionItems[m.actionCursor].key))
+			case x.String() == "esc", x.String() == "q":
+				m.actionMenu = false
 				m.Status = ""
 			}
 			return m, nil
@@ -354,6 +377,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Preparing delta for " + p.Name + "…"
 			return m, deltaPlanCmd(m.svc, p.Slug)
+		case key.Matches(x, keys.Actions):
+			if _, ok := m.selectedProject(); !ok {
+				m.Status = "Select a project to see its actions"
+				return m, nil
+			}
+			m.actionMenu = true
+			m.actionCursor = 0
+			m.Status = ""
+			return m, nil
 		case key.Matches(x, keys.Source):
 			return m, SelectScreen(ScreenSource)
 		case key.Matches(x, keys.Help):
@@ -786,6 +818,52 @@ func (m Model) flowPickerView() string {
 	return box
 }
 
+// actionItems is the x actions menu (spec 3.9): every action that
+// operates on the selection. Choosing a row dispatches back through
+// the same key path the shortcut uses, so the menu cannot drift.
+var actionItems = []struct{ key, label string }{
+	{"enter", "open in preferred editor"},
+	{"d", "detail"},
+	{"h", "doctor"},
+	{"a", "build agent map"},
+	{"f", "flow to another stage"},
+	{"A", "delta (archive)"},
+	{"y", "copy path"},
+	{"o", "reveal folder"},
+	{"?", "help"},
+}
+
+// actionKeyMsg turns a menu key back into the KeyMsg the switch expects.
+func actionKeyMsg(k string) tea.Msg {
+	if k == "enter" {
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+}
+
+// actionMenuView centres the action list like the stage picker.
+func (m Model) actionMenuView() string {
+	var b strings.Builder
+	title := "ACTIONS"
+	if p, ok := m.selectedProject(); ok {
+		title = "ACTIONS — " + p.Name
+	}
+	b.WriteString(titleStyle.Render(title))
+	for i, a := range actionItems {
+		line := "  " + a.key + "  " + a.label
+		if i == m.actionCursor {
+			line = selectedStyle.Render("> " + a.key + "  " + a.label)
+		}
+		b.WriteString("\n" + line)
+	}
+	b.WriteString("\n\n" + mutedStyle.Render("↑↓ choose · enter run · esc cancel"))
+	box := panelStyle.Render(b.String())
+	if m.Width > 0 && m.Height > 0 {
+		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
+}
+
 // listCmd re-queries the registry; Root applies projectsMsg.
 func listCmd(svc service.Service) tea.Cmd {
 	return func() tea.Msg {
@@ -1005,6 +1083,9 @@ func (m Model) View() string {
 	}
 	if m.flowPick {
 		return m.flowPickerView()
+	}
+	if m.actionMenu {
+		return m.actionMenuView()
 	}
 
 	// The badge row wraps on narrow terminals, so budget the body from

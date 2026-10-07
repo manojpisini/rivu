@@ -30,6 +30,7 @@ type keyMap struct {
 	Flow         key.Binding
 	Delta        key.Binding
 	Pick         key.Binding
+	Actions      key.Binding
 	Source       key.Binding
 	Copy         key.Binding
 	Reveal       key.Binding
@@ -48,7 +49,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.SwitchPanel, k.Up, k.Down, k.PageUp, k.PageDown, k.HalfUp, k.HalfDown, k.Top, k.Bottom, k.Home, k.End, k.StageDigit, k.StagePrev, k.StageNext},
-		{k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Delta, k.Pick, k.Source, k.Refresh, k.Copy, k.Reveal},
+		{k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Delta, k.Pick, k.Actions, k.Source, k.Refresh, k.Copy, k.Reveal},
 		{k.Help, k.Quit},
 	}
 }
@@ -78,6 +79,7 @@ var keys = keyMap{
 	Flow:         key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "flow")),
 	Delta:        key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "delta (archive)")),
 	Pick:         key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "pick")),
+	Actions:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "actions menu")),
 	Source:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "source")),
 	Copy:         key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy path")),
 	Reveal:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "reveal")),
