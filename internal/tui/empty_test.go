@@ -17,15 +17,16 @@ func flat(v string) string {
 func TestEmptyStatesTeachNextAction(t *testing.T) {
 	m, _ := scanFixture(t)
 
-	// workspace with no projects at all
+	// workspace with no projects at all gets the first-run card (P3.24)
 	m.Projects = nil
 	m.applyFilter()
 	v := flat(m.View())
 	for _, want := range []string{
-		"No projects yet — run `rivu source <path>` or press r to rescan.",
+		"WELCOME", "rivu source <path>", "add your first project",
+		"r rescan the workspace", "/ search · ? find things, see all keys",
 	} {
 		if !strings.Contains(v, want) {
-			t.Errorf("workspace empty state must teach source/rescan: %q", v)
+			t.Errorf("first-run card missing %q: %q", want, v)
 		}
 	}
 
@@ -53,6 +54,25 @@ func TestDetailsPanelEmptyTeaches(t *testing.T) {
 	m.applyFilter()
 	if got := m.detailsPanel(60, 20); !strings.Contains(got, "Select a project (up/down to move, enter to open).") {
 		t.Errorf("details empty state = %q", got)
+	}
+}
+
+func TestMissingRootOnboarding(t *testing.T) {
+	m := testModel(t)
+	m.Projects = nil
+	m.RootExists = false
+	m.applyFilter()
+	v := flat(m.View())
+	for _, want := range []string{"Workspace root not found:", m.WorkspaceRoot, "press r"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing-root card missing %q: %q", want, v)
+		}
+	}
+	// a search still wins over onboarding (the user asked a question)
+	m.Query = "zzzz"
+	m.applyFilter()
+	if !strings.Contains(flat(m.View()), "No projects match your search") {
+		t.Errorf("search message must outrank onboarding: %q", flat(m.View()))
 	}
 }
 

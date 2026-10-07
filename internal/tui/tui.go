@@ -39,6 +39,7 @@ type Model struct {
 	Width          int
 	Height         int
 	WorkspaceRoot  string
+	RootExists     bool
 	Status         string
 	Current        registry.Project
 	HasCurrent     bool
@@ -58,7 +59,7 @@ type Model struct {
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
-	m := Model{Projects: ps, WorkspaceRoot: workspaceRoot, FocusSidebar: true, help: help.New()}
+	m := Model{Projects: ps, WorkspaceRoot: workspaceRoot, RootExists: true, FocusSidebar: true, help: help.New()}
 	m.search = textinput.New()
 	m.search.Prompt = "SEARCH: "
 	m.search.Width = 32
@@ -954,12 +955,15 @@ func (m Model) projectPanel(width, height int) string {
 		b.WriteString(line + "\n")
 	}
 	if len(m.Visible) == 0 {
-		// Empty states teach the next action (P3.23).
+		// Empty states teach the next action (P3.23); first run gets a
+		// fuller onboarding card (P3.24).
 		switch {
-		case len(m.Projects) == 0:
-			b.WriteString("\n" + mutedStyle.Render("No projects yet — run `rivu source <path>` or press r to rescan.") + "\n")
 		case m.Query != "":
 			b.WriteString("\n" + mutedStyle.Render("No projects match your search — press esc to clear it.") + "\n")
+		case !m.RootExists:
+			b.WriteString("\n" + m.onboardMissingRoot())
+		case len(m.Projects) == 0:
+			b.WriteString("\n" + m.onboardWelcome())
 		default:
 			b.WriteString("\n" + mutedStyle.Render("Nothing in this stage — press 1-5 to switch stage, or r to rescan.") + "\n")
 		}
@@ -969,6 +973,29 @@ func (m Model) projectPanel(width, height int) string {
 		style = focusStyle
 	}
 	return style.Width(width - 2).Height(height - 2).Render(b.String())
+}
+
+// onboardWelcome is the first-run card when the workspace simply has
+// nothing registered yet (P3.24): three concrete next steps.
+func (m Model) onboardWelcome() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("WELCOME") + "\n")
+	b.WriteString(mutedStyle.Render("Rivu maps your project filesystem.") + "\n\n")
+	b.WriteString(selectedStyle.Render("1") + "  rivu source <path>   add your first project\n")
+	b.WriteString(selectedStyle.Render("2") + "  r                    rescan the workspace\n")
+	b.WriteString(selectedStyle.Render("3") + "  / search  ·  ?       find things, see all keys\n")
+	return b.String()
+}
+
+// onboardMissingRoot explains that the configured root does not exist;
+// nothing can be discovered until it is created (P3.24).
+func (m Model) onboardMissingRoot() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("WELCOME") + "\n")
+	b.WriteString(mutedStyle.Render("Workspace root not found:") + "\n")
+	b.WriteString(valueStyle.Render("  "+m.WorkspaceRoot) + "\n\n")
+	b.WriteString(mutedStyle.Render("Create the folder (or set workspace.root), then press r.") + "\n")
+	return b.String()
 }
 
 // detailsPanel is the side detail pane (>=120 cols).

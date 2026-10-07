@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -156,6 +157,10 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 	}
 	r.dashboard.svc = svc
 	r.dashboard.cfg = cfg
+	// One stat at startup (P3.24); View never touches the filesystem.
+	if _, err := os.Stat(cfg.Workspace.Root); err != nil {
+		r.dashboard.RootExists = false
+	}
 	return r
 }
 
