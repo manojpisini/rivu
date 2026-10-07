@@ -33,7 +33,7 @@ func TestGUILaunchClassification(t *testing.T) {
 
 func TestOpenTargetClassifiesAndReportsErrors(t *testing.T) {
 	f := &fake.Service{} // fake resolves editor "code" for the default
-	argv, tty, err := openTarget(f, "demo", []string{"code"})
+	argv, tty, err := openTarget(f, "demo", "", []string{"code"})
 	if err != nil {
 		t.Fatalf("openTarget: %v", err)
 	}
@@ -44,13 +44,19 @@ func TestOpenTargetClassifiesAndReportsErrors(t *testing.T) {
 		t.Errorf("argv = %v, want [code path]", argv)
 	}
 
-	_, tty, err = openTarget(f, "demo", nil)
+	_, tty, err = openTarget(f, "demo", "", nil)
 	if err != nil || !tty {
 		t.Errorf("without a GUI list the editor is terminal: tty=%v err=%v", tty, err)
 	}
 
+	// the wizard's Editor row feeds the launch (P4.23)
+	argv, _, err = openTarget(f, "demo", "nvim", nil)
+	if err != nil || len(argv) == 0 || argv[0] != "nvim" {
+		t.Errorf("openTarget with editor nvim = %v, err %v; want argv[0] nvim", argv, err)
+	}
+
 	f.OpenErr = registry.ErrNotFound
-	if _, _, err := openTarget(f, "ghost", nil); err == nil {
+	if _, _, err := openTarget(f, "ghost", "", nil); err == nil {
 		t.Error("missing project must surface the service error")
 	}
 }

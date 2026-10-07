@@ -315,18 +315,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Status = "Open unavailable: no service in this session"
 				return m, nil
 			}
-			argv, tty, err := openTarget(m.svc, p.Slug, m.cfg.Editors.GUI)
+			cmd, err := openCmd(m.svc, p.Slug, "", m.cfg.Editors.GUI)
 			if err != nil {
 				return m, ShowToast(Toast{Level: "bad", Text: "could not open " + p.Slug + ": " + err.Error()})
 			}
-			if !tty {
-				// Terminal editor: suspend the TUI and hand over the TTY.
-				return m, tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg {
-					return editorDoneMsg{slug: p.Slug, err: err}
-				})
-			}
-			// GUI editor: Start() in the background, TUI keeps running.
-			return m, startOpenCmd(p.Slug, argv)
+			return m, cmd
 		case key.Matches(x, keys.Doctor):
 			if m.svc == nil {
 				m.Status = "Health checks unavailable: no service in this session"
@@ -1039,14 +1032,31 @@ func guiLaunch(argv []string, gui []string) bool {
 	return false
 }
 
-// openTarget resolves the launch argv for slug and reports whether the
-// editor needs the terminal (tty) or can be Start()ed in background.
-func openTarget(svc service.Service, slug string, gui []string) (argv []string, tty bool, err error) {
-	argv, err = svc.OpenCommand(slug, "")
+// openTarget resolves the launch argv for slug (editor "" = the
+// configured default) and reports whether the editor needs the
+// terminal (tty) or can be Start()ed in background.
+func openTarget(svc service.Service, slug, editor string, gui []string) (argv []string, tty bool, err error) {
+	argv, err = svc.OpenCommand(slug, editor)
 	if err != nil {
 		return nil, false, err
 	}
 	return argv, !guiLaunch(argv, gui), nil
+}
+
+// openCmd resolves slug in editor and returns the command that launches
+// it: terminal editors take the TTY via ExecProcess, GUI editors
+// Start() in the background (spec 1.x / B-05).
+func openCmd(svc service.Service, slug, editor string, gui []string) (tea.Cmd, error) {
+	argv, tty, err := openTarget(svc, slug, editor, gui)
+	if err != nil {
+		return nil, err
+	}
+	if !tty {
+		return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg {
+			return editorDoneMsg{slug: slug, err: err}
+		}), nil
+	}
+	return startOpenCmd(slug, argv), nil
 }
 
 // startOpenCmd launches a GUI editor without blocking the TUI.

@@ -161,7 +161,11 @@ func (f *Service) OpenProject(q, editor string) error {
 }
 
 func (f *Service) OpenCommand(q, editor string) ([]string, error) {
-	f.record("OpenCommand " + q)
+	rec := "OpenCommand " + q
+	if editor != "" {
+		rec += " " + editor
+	}
+	f.record(rec)
 	if f.OpenErr != nil {
 		return nil, f.OpenErr
 	}

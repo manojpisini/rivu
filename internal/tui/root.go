@@ -247,7 +247,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.screen = x.Screen
 		if x.Screen == ScreenSource {
 			// Every entry starts a fresh wizard (P4.01).
-			r.src = newSourceWizard()
+			r.src = newSourceWizard(r.cfg)
 			r.dashboard.Status = ""
 		}
 		return r, nil
@@ -334,6 +334,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sourceApplyMsg:
 		// The apply already ran — its outcome is reported even if the
 		// wizard was left mid-flight (never silently drop a write).
+		w := r.src
 		r.src = sourceWizard{}
 		if x.err != nil {
 			r.screen = ScreenDashboard
@@ -343,7 +344,19 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.dashboard.Status = ""
 		r.pendingJump = x.res.Project.Slug
 		toast := ShowToast(Toast{Level: "good", Text: fmt.Sprintf("Sourced %s at %s", x.res.Project.Name, x.res.Project.Path)})
-		return r, tea.Batch(r.loadProjects(), toast)
+		cmds := []tea.Cmd{r.loadProjects(), toast}
+		if w.openEditor {
+			// Automation "Open editor after" (P4.23): the wizard's Editor
+			// row feeds the launch; a bad editor string warns without
+			// undoing the successful source.
+			oc, err := openCmd(r.svc, x.res.Project.Slug, w.editor, r.cfg.Editors.GUI)
+			if err != nil {
+				cmds = append(cmds, ShowToast(Toast{Level: "warn", Text: "could not open " + x.res.Project.Slug + ": " + err.Error()}))
+			} else {
+				cmds = append(cmds, oc)
+			}
+		}
+		return r, tea.Batch(cmds...)
 	case doctorDoneMsg:
 		r.dashboard.Status = ""
 		if x.err != nil {

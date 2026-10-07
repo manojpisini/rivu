@@ -179,6 +179,10 @@ type SourceOpts struct {
 	Description string // one-line purpose, stored in project.toml
 	Confluence  []string
 	Bridge      bool // bridge owns git init for this project (spec 1.7)
+	// CreateBank and BuildMap override [automation] defaults for this
+	// run; nil keeps the config value (wizard rows feed the apply, P4.23).
+	CreateBank *bool
+	BuildMap   *bool
 }
 
 // Source creates a structured project, or with adopt registers an existing
@@ -282,10 +286,19 @@ func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 	if createdRoot {
 		plan.Create = append(plan.Create, path)
 	}
-	if a.Config.Automation.CreateBank {
+	// Wizard rows (P4.23) override the [automation] defaults for this run.
+	createBank := a.Config.Automation.CreateBank
+	if o.CreateBank != nil {
+		createBank = *o.CreateBank
+	}
+	buildMap := a.Config.Automation.BuildMap
+	if o.BuildMap != nil {
+		buildMap = *o.BuildMap
+	}
+	if createBank {
 		plan.Bank = append(plan.Bank, ".metadata/project.toml", ".metadata/overview.md", ".metadata/decisions.md", ".metadata/tasks.md")
 	}
-	if a.Config.Automation.BuildMap && !o.Adopt {
+	if buildMap && !o.Adopt {
 		plan.Write = append(plan.Write, ".metadata/agent/AGENTS.md", ".metadata/agent/PROJECT_MAP.md")
 	}
 	plan.Registry = append(plan.Registry, "register "+s)
@@ -328,7 +341,7 @@ func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 			}
 		}
 	}
-	if a.Config.Automation.CreateBank {
+	if createBank {
 		metaRan = true
 		meta := bank.Meta{Domain: o.Domain, Type: o.Type, Template: o.Template, Description: o.Description, Confluences: o.Confluence}
 		if e := bank.Build(p, gitOwner, meta); e != nil {
@@ -336,7 +349,7 @@ func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 		}
 		p.HasBank = true
 	}
-	if a.Config.Automation.BuildMap && !o.Adopt {
+	if buildMap && !o.Adopt {
 		metaRan = true
 		if e := mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 			return fail(e)

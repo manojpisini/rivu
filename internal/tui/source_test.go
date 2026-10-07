@@ -470,7 +470,9 @@ func TestSourceDryRunApply(t *testing.T) {
 		t.Fatalf("calls = %v, want exactly the dry-run Source", f.Calls())
 	}
 
-	// y applies for real
+	// y applies for real; openEditor off so the batch below never
+	// spawns a real editor process (the launch path has its own test)
+	r.src.openEditor = false
 	r, cmd := upd(t, r, keyR('y'))
 	if cmd == nil {
 		t.Fatal("y with a ready plan must apply")
@@ -594,6 +596,7 @@ func TestSourceOptsMapping(t *testing.T) {
 		language: "go", template: "go-cli", description: "does things",
 		confluences: " ship , , brand ",
 		git:         true, bridge: true,
+		bank: true, buildMap: false,
 	}
 	o := w.opts()
 	if o.Flow != "active" || o.Type != "cli" || o.Domain != "devtools" ||
@@ -602,6 +605,9 @@ func TestSourceOptsMapping(t *testing.T) {
 	}
 	if !o.Git || !o.Bridge {
 		t.Errorf("git/bridge = %v/%v, want both carried (spec 1.7 resolves them service-side)", o.Git, o.Bridge)
+	}
+	if o.CreateBank == nil || !*o.CreateBank || o.BuildMap == nil || *o.BuildMap {
+		t.Errorf("bank/map = %v/%v, want explicit row values carried (P4.23)", o.CreateBank, o.BuildMap)
 	}
 	if len(o.Confluence) != 2 || o.Confluence[0] != "ship" || o.Confluence[1] != "brand" {
 		t.Errorf("confluences = %#v, want [ship brand] (empty entries dropped)", o.Confluence)
@@ -713,5 +719,114 @@ func TestSourceApplyError(t *testing.T) {
 	}
 	if r.pendingJump != "" || r.dashboard.DetailFull {
 		t.Errorf("failed apply must not jump: pending=%q full=%v", r.pendingJump, r.dashboard.DetailFull)
+	}
+}
+
+// walkToApply drives the wizard to a ready plan and returns the apply
+// command without running it, so a test can tweak the fake first.
+func walkToApply(t *testing.T, open bool, editor string) (Root, *fake.Service, tea.Cmd) {
+	t.Helper()
+	r, f := rootOf(t)
+	f.SourceRes = service.SourceResult{
+		Project: registry.Project{ID: "9", Slug: "quiet-repo", Name: "quiet repo", Path: "/w/00_Source/quiet-repo", FlowStage: "source"},
+		Plan:    service.SourcePlan{Name: "quiet repo"},
+	}
+	r = openSource(t, r)
+	r = walkToDry(t, r, f, "quiet repo")
+	r.src.openEditor = open
+	r.src.editor = editor
+	r, apply := upd(t, r, keyR('y'))
+	if apply == nil {
+		t.Fatal("y with a ready plan must apply")
+	}
+	return r, f, apply
+}
+
+// TestSourceApplyOpensEditorAfter (P4.23): the Automation rows feed the
+// run — openEditor launches the new project in the wizard's editor, the
+// row off leaves the editor alone, and a broken editor warns without
+// undoing the source.
+func TestSourceApplyOpensEditorAfter(t *testing.T) {
+	// row on: the editor string feeds the launch
+	r, f, apply := walkToApply(t, true, "nvim")
+	r, cmd := upd(t, r, apply())
+	bm, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("apply returned %T, want a batch", cmd())
+	}
+	if !contains(f.Calls(), "OpenCommand quiet-repo nvim") {
+		t.Errorf("calls = %v, want the launch with the wizard's editor", f.Calls())
+	}
+	if len(bm) != 3 {
+		t.Fatalf("batch = %d cmds, want refresh+toast+launch", len(bm))
+	}
+	// refresh and toast are safe to run; bm[2] is the launch itself
+	for _, c := range bm[:2] {
+		r, _ = upd(t, r, c())
+	}
+	if len(r.toasts) == 0 || !strings.Contains(r.toasts[0].Text, "Sourced quiet repo") {
+		t.Errorf("toasts = %+v, want the sourced line", r.toasts)
+	}
+
+	// row off: nothing is launched
+	r2, f2, apply2 := walkToApply(t, false, "nvim")
+	r2, cmd2 := upd(t, r2, apply2())
+	bm2, ok := cmd2().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("apply returned %T, want a batch", cmd2())
+	}
+	if len(bm2) != 2 {
+		t.Fatalf("batch = %d cmds, want refresh+toast only with the row off", len(bm2))
+	}
+	for _, c := range bm2 {
+		r2, _ = upd(t, r2, c())
+	}
+	if contains(f2.Calls(), "OpenCommand quiet-repo nvim") {
+		t.Errorf("calls = %v, want no launch with the row off", f2.Calls())
+	}
+
+	// editor cannot launch: a warn toast, the source still stands
+	r3, f3, apply3 := walkToApply(t, true, "nvim")
+	f3.OpenErr = registry.ErrNotFound
+	r3, cmd3 := upd(t, r3, apply3())
+	bm3, ok := cmd3().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("apply returned %T, want a batch", cmd3())
+	}
+	for _, c := range bm3 { // all toast/refresh cmds, no launch was built
+		r3, _ = upd(t, r3, c())
+	}
+	var texts []string
+	for _, tn := range r3.toasts {
+		texts = append(texts, tn.Text)
+	}
+	joined := strings.Join(texts, "\n")
+	if !strings.Contains(joined, "Sourced quiet repo") || !strings.Contains(joined, "could not open quiet-repo") {
+		t.Errorf("toasts = %q, want the source line plus the open warning", joined)
+	}
+	if r3.pendingJump != "" {
+		t.Errorf("pendingJump = %q, want the jump kept", r3.pendingJump)
+	}
+}
+
+// TestSourceWizardAutomationDefaults (P4.23): the Bank and Map rows
+// seed from [automation] so an untouched row preserves the config
+// value; Git and open-editor keep the CLI-flag defaults.
+func TestSourceWizardAutomationDefaults(t *testing.T) {
+	r, _ := rootOf(t)
+	r.cfg.Automation.CreateBank = false
+	r.cfg.Automation.BuildMap = false
+	r = openSource(t, r)
+	if r.src.bank || r.src.buildMap {
+		t.Errorf("rows bank=%v map=%v, want both seeded off from config", r.src.bank, r.src.buildMap)
+	}
+	if !r.src.git || !r.src.openEditor {
+		t.Errorf("git=%v open=%v, want the CLI defaults kept", r.src.git, r.src.openEditor)
+	}
+
+	r2, _ := rootOf(t) // config defaults are yes/yes
+	r2 = openSource(t, r2)
+	if !r2.src.bank || !r2.src.buildMap {
+		t.Errorf("rows bank=%v map=%v, want both seeded on from config", r2.src.bank, r2.src.buildMap)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/slug"
 )
@@ -52,17 +53,18 @@ type sourceWizard struct {
 	loading bool
 }
 
-// newSourceWizard opens step 1 with the Name field focused and the
-// Automation defaults the CLI flags use.
-func newSourceWizard() sourceWizard {
+// newSourceWizard opens step 1 with the Name field focused; Bank and
+// Map rows seed from [automation] so an untouched row preserves the
+// config value (CLI: --git true, --bridge false; open editor on).
+func newSourceWizard(cfg config.Config) sourceWizard {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Width = 40
 	in.Focus()
 	return sourceWizard{
-		bank:       true,
+		bank:       cfg.Automation.CreateBank,
 		git:        true,
-		buildMap:   true,
+		buildMap:   cfg.Automation.BuildMap,
 		openEditor: true,
 		input:      in,
 	}
@@ -365,6 +367,8 @@ func (w sourceWizard) opts() service.SourceOpts {
 		Confluence:  conv,
 		Git:         w.git,
 		Bridge:      w.bridge,
+		CreateBank:  &w.bank,
+		BuildMap:    &w.buildMap,
 	}
 }
 
