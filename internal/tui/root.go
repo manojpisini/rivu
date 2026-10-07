@@ -120,6 +120,8 @@ type Root struct {
 	mapScroll    int
 	masterRes    *service.Dashboard // Master Dashboard snapshot (P4.16)
 	masterCursor int                // attention queue cursor (P4.18)
+	statsRes     *service.Stats     // Stats screen snapshot (P4.19)
+	statsDaily   []int              // 30-day activity counts
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -365,6 +367,15 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.masterCursor = 0
 		r.screen = ScreenMasterDashboard
 		return r, nil
+	case statsMsg:
+		r.dashboard.Status = ""
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not load stats: " + x.err.Error()})
+		}
+		r.statsRes = &x.st
+		r.statsDaily = x.daily
+		r.screen = ScreenStats
+		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
@@ -605,6 +616,8 @@ func (r Root) render() string {
 		body = r.mapReportView()
 	case ScreenMasterDashboard:
 		body = r.masterView()
+	case ScreenStats:
+		body = r.statsView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))
@@ -930,6 +943,66 @@ func masterBar(n, total int) string {
 		return ""
 	}
 	return strings.Repeat("█", max(1, min(8, n*8/total)))
+}
+
+// statsView is the Stats screen (spec 3.6): totals, breakdowns and the
+// 30-day activity sparkline (P4.19). Sections stack instead of the
+// spec's three columns so every terminal width shows all of them.
+func (r Root) statsView() string {
+	var b strings.Builder
+	if r.statsRes == nil {
+		b.WriteString(r.styleTitle.Render("STATS"))
+		b.WriteString("\n\n" + r.styleMuted.Render("Loading…"))
+		b.WriteString("\n" + r.styleMuted.Render("esc back"))
+		return b.String()
+	}
+	st := *r.statsRes
+	rng := "All time"
+	if st.Range != "all" {
+		rng = st.Range
+	}
+	b.WriteString(r.styleTitle.Render("STATS"))
+	b.WriteString("\n" + r.styleMuted.Render("Range: "+rng))
+
+	b.WriteString("\n\n  " + masterLabel.Render("Projects total") + strconv.Itoa(st.Total))
+	b.WriteString("\n  " + masterLabel.Render("Avg health") + strconv.Itoa(st.AvgHealth) + "/100")
+	b.WriteString("\n  " + masterLabel.Render("Median health") + strconv.Itoa(st.MedianHealth) + "/100")
+	b.WriteString("\n  " + masterLabel.Render(fmt.Sprintf("Stale (%dd+)", r.cfg.Flow.StaleThresholdDays)) + strconv.Itoa(st.Stale))
+	b.WriteString("\n  " + masterLabel.Render("Missing folder") + strconv.Itoa(st.MissingFolder))
+	b.WriteString("\n  " + masterLabel.Render("Missing map") + strconv.Itoa(st.MissingMap))
+	b.WriteString("\n  " + masterLabel.Render("Missing README") + strconv.Itoa(st.MissingReadme))
+
+	writeCounts := func(header string, cs []service.Count) {
+		b.WriteString("\n\n" + header)
+		if len(cs) == 0 {
+			b.WriteString("\n  " + r.styleMuted.Render("none"))
+			return
+		}
+		for _, c := range cs {
+			b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, st.Total) + "  " + strconv.Itoa(c.Count))
+		}
+	}
+	writeCounts("By language", st.ByLanguage)
+	writeCounts("By flow", st.ByFlow)
+	writeCounts("By health", st.ByHealth)
+
+	b.WriteString("\n\nActivity (last 30 days)")
+	if sp := activitySpark(r.statsDaily); sp != "" {
+		b.WriteString("\n  " + sp)
+	} else {
+		b.WriteString("\n  " + r.styleMuted.Render("no events yet"))
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render("esc back"))
+
+	out := b.String()
+	if r.width > 0 {
+		ls := strings.Split(out, "\n")
+		for i, ln := range ls {
+			ls[i] = shorten(ln, max(1, r.width-2))
+		}
+		out = strings.Join(ls, "\n")
+	}
+	return out
 }
 
 // attentionLabel words one triage bucket the way `rivu dashboard`

@@ -36,6 +36,7 @@ type App struct {
 type Service interface {
 	List(f Filter) ([]registry.Project, error)
 	Stats(days int) (Stats, error)
+	ActivityDaily(days int) ([]int, error)
 	Dashboard() (Dashboard, error)
 	Index() (IndexResult, error)
 	Scan() (ScanResult, error)

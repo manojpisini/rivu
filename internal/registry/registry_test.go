@@ -922,3 +922,50 @@ func TestHealthSnapshotsOldestFirstWithLimit(t *testing.T) {
 		t.Fatalf("missing project: %+v err=%v, want empty", none, err)
 	}
 }
+
+// TestActivityDailyBucketsByCivilDay: one slot per day, zero-filled,
+// oldest first; events outside the window are dropped (P4.19).
+func TestActivityDailyBucketsByCivilDay(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(t.TempDir(), "alpha"), FlowStage: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	const days = 30
+	start := civilDay(time.Now()).AddDate(0, 0, -(days - 1))
+	// offsets: first day of the window, next day, today, and one too old
+	for i, off := range []int{0, 1, 29, 40} {
+		at := start.AddDate(0, 0, off).Add(12 * time.Hour)
+		if _, err := r.DB.Exec(`INSERT INTO activity_log(id,project_id,event,occurred_at) VALUES(?,?,?,?)`,
+			fmt.Sprintf("e%d", i), "p1", "opened", at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := r.ActivityDaily(days)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != days {
+		t.Fatalf("len = %d, want %d", len(got), days)
+	}
+	if got[0] != 1 || got[1] != 1 || got[29] != 1 {
+		t.Fatalf("buckets = %v, want events at 0, 1 and 29", got)
+	}
+	if got[5] != 0 {
+		t.Errorf("quiet day = %d, want zero-filled", got[5])
+	}
+	sum := 0
+	for _, c := range got {
+		sum += c
+	}
+	if sum != 3 {
+		t.Errorf("sum = %d, want 3 (the offset-40 event is out of window)", sum)
+	}
+	empty, err := r.ActivityDaily(0)
+	if err != nil || len(empty) != 0 {
+		t.Errorf("ActivityDaily(0) = %v, %v; want empty", empty, err)
+	}
+}

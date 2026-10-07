@@ -508,6 +508,40 @@ func (r *Registry) RecentActivity(limit int) ([]Activity, error) {
 	return out, rows.Err()
 }
 
+// ActivityDaily returns one event count per day for the last `days`
+// days, oldest first, zero-filled — the Stats screen sparkline (P4.19).
+// Civil-day math runs in UTC so a local DST shift can never fold two
+// days into one bucket.
+func (r *Registry) ActivityDaily(days int) ([]int, error) {
+	out := make([]int, days)
+	if days <= 0 {
+		return out, nil
+	}
+	rows, err := r.DB.Query(`SELECT occurred_at FROM activity_log`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	start := civilDay(time.Now()).AddDate(0, 0, -(days - 1))
+	for rows.Next() {
+		var at time.Time
+		if err := rows.Scan(&at); err != nil {
+			return nil, err
+		}
+		idx := int(civilDay(at).Sub(start) / (24 * time.Hour))
+		if idx >= 0 && idx < days {
+			out[idx]++
+		}
+	}
+	return out, rows.Err()
+}
+
+// civilDay normalises t to UTC midnight for day-count arithmetic.
+func civilDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
 // ConfluenceProjectIDs returns the project IDs that are members of the
 // confluence identified by name or id. An unknown confluence matches
 // nothing: filters narrow a list, they do not fail it.

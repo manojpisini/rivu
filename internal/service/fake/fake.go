@@ -30,6 +30,8 @@ type Service struct {
 	MapPreviewErr error
 	StatsRes      service.Stats
 	StatsErr      error
+	ActivityRes   []int
+	ActivityErr   error
 	DashRes       service.Dashboard
 	IndexRes      service.IndexResult
 	OpenErr       error
@@ -64,6 +66,11 @@ func (f *Service) List(service.Filter) ([]registry.Project, error) {
 
 func (f *Service) Stats(days int) (service.Stats, error) {
 	return f.StatsRes, f.StatsErr
+}
+
+// ActivityDaily serves the canned per-day counts for the Stats screen.
+func (f *Service) ActivityDaily(days int) ([]int, error) {
+	return f.ActivityRes, f.ActivityErr
 }
 
 func (f *Service) Dashboard() (service.Dashboard, error) {

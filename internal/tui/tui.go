@@ -345,6 +345,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Loading master dashboard…"
 			return m, dashCmd(m.svc)
+		case key.Matches(x, keys.Stats):
+			if m.svc == nil {
+				m.Status = "Stats unavailable: no service in this session"
+				return m, nil
+			}
+			m.Status = "Loading stats…"
+			return m, statsCmd(m.svc)
 		case key.Matches(x, keys.Map):
 			if m.svc == nil {
 				m.Status = "Agent map unavailable: no service in this session"
@@ -669,6 +676,25 @@ func dashCmd(svc service.Service) tea.Cmd {
 	}
 }
 
+// statsMsg carries the Stats screen snapshot (P4.19).
+type statsMsg struct {
+	st    service.Stats
+	daily []int
+	err   error
+}
+
+// statsCmd loads metrics plus the 30-day activity series off-thread.
+func statsCmd(svc service.Service) tea.Cmd {
+	return func() tea.Msg {
+		st, err := svc.Stats(0)
+		if err != nil {
+			return statsMsg{err: err}
+		}
+		daily, derr := svc.ActivityDaily(30)
+		return statsMsg{st: st, daily: daily, err: derr}
+	}
+}
+
 // osc52 encodes s for the OSC 52 clipboard escape (P3.29); terminals
 // that ignore it simply drop the sequence.
 func osc52(s string) string {
@@ -927,6 +953,29 @@ func sparkline(scores []int) string {
 	for _, s := range scores {
 		s = max(0, min(100, s))
 		b.WriteString(string(widths[s*(len(widths)-1)/100]))
+	}
+	return b.String()
+}
+
+// activitySpark scales counts against their own maximum (unlike
+// sparkline, which is fixed to 0-100 health scores) for the Stats
+// screen (P4.19). No events at all renders nothing.
+func activitySpark(counts []int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	top := 0
+	for _, c := range counts {
+		top = max(top, c)
+	}
+	if top == 0 {
+		return ""
+	}
+	const levels = "▁▂▃▄▅▆▇█"
+	widths := []rune(levels)
+	var b strings.Builder
+	for _, c := range counts {
+		b.WriteString(string(widths[c*(len(widths)-1)/top]))
 	}
 	return b.String()
 }

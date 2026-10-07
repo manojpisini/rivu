@@ -154,3 +154,10 @@ func healthBand(h int) string {
 		return "0-49"
 	}
 }
+
+// ActivityDaily exposes the registry's per-day event counts for the
+// Stats screen sparkline (P4.19); it is deliberately not part of the
+// frozen stats --json schema.
+func (a *App) ActivityDaily(days int) ([]int, error) {
+	return a.Registry.ActivityDaily(days)
+}

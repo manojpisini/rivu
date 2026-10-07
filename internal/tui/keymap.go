@@ -35,6 +35,7 @@ type keyMap struct {
 	Copy         key.Binding
 	Reveal       key.Binding
 	Master       key.Binding
+	Stats        key.Binding
 	Help         key.Binding
 	StageDigit   key.Binding
 	StagePrev    key.Binding
@@ -50,7 +51,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.SwitchPanel, k.Up, k.Down, k.PageUp, k.PageDown, k.HalfUp, k.HalfDown, k.Bottom, k.Home, k.End, k.StageDigit, k.StagePrev, k.StageNext},
-		{k.Master, k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Delta, k.Pick, k.Actions, k.Untriaged, k.Source, k.Refresh, k.Copy, k.Reveal},
+		{k.Master, k.Stats, k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Delta, k.Pick, k.Actions, k.Untriaged, k.Source, k.Refresh, k.Copy, k.Reveal},
 		{k.Help, k.Quit},
 	}
 }
@@ -85,6 +86,7 @@ var keys = keyMap{
 	Copy:         key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy path")),
 	Reveal:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "reveal")),
 	Master:       key.NewBinding(key.WithKeys("g", "m"), key.WithHelp("g", "master")),
+	Stats:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stats")),
 	Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	StageDigit:   key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "switch stage")),
 	StagePrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("left", "prev stage")),
