@@ -83,3 +83,19 @@ func healthBadge(score int) string {
 	}
 	return badge(st, fmt.Sprintf("Health:%d", score))
 }
+
+// scoreBar renders a 0-100 score as a 20-cell bar (spec P4.13),
+// coloured by the health band; asciiSwap maps the blocks for ASCII
+// terminals.
+func scoreBar(score int) string {
+	score = max(0, min(100, score))
+	st := badgeBad
+	switch {
+	case score >= 70:
+		st = badgeGood
+	case score >= 50:
+		st = badgeWarn
+	}
+	filled := score / 5
+	return st.Render(strings.Repeat("█", filled)) + badgeMuted.Render(strings.Repeat("░", 20-filled))
+}

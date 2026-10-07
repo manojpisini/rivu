@@ -615,8 +615,33 @@ func (r Root) errExpandView() string {
 	return r.styleErrBox.Render(b.String())
 }
 
-// doctorView renders health-check reports: every project's score, then
-// only the failing checks (the rest come from `rivu doctor`).
+// doctorRemedy gives a failing check a concrete next step in the
+// Health screen (P4.13); "" means the check needs no action.
+func doctorRemedy(c doctor.Check, slug string) string {
+	switch c.Name {
+	case "README":
+		return "create README.md in the project folder"
+	case "Git":
+		return "run `git init` in the project folder"
+	case "Bank":
+		return "run `rivu doctor " + slug + "` to audit"
+	case "Map":
+		return "run `rivu agent sync " + slug + "`"
+	case "Tests":
+		return "add a tests/ folder"
+	case "CI":
+		return "add a workflow under .github/workflows"
+	case "License":
+		return "add a LICENSE file"
+	case "Git exclusivity":
+		return "verify history (.git + bridge marker + git_init_owner=rivu)"
+	}
+	return ""
+}
+
+// doctorView renders health-check reports (spec P4.13): score bar,
+// every check as a finding (CLI parity with `rivu doctor`), and a fix
+// line under each failing check.
 func (r Root) doctorView() string {
 	var b strings.Builder
 	title := "HEALTH — all projects"
@@ -630,17 +655,21 @@ func (r Root) doctorView() string {
 		return b.String()
 	}
 	for _, rep := range r.doctorRes {
-		b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score))
-		failed := false
+		b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score) + "  " + scoreBar(rep.Score) + "  " + strconv.Itoa(rep.Score) + "/100")
 		for _, c := range rep.Checks {
-			if c.OK {
-				continue
+			line := r.styleMuted.Render(" ✓ ") + c.Name + "  " + c.Detail
+			if !c.OK {
+				line = r.styleErr.Render(" ! ") + c.Name + "  " + c.Detail
 			}
-			failed = true
-			b.WriteString("\n" + r.styleErr.Render(" ! "+c.Name) + "  " + c.Detail)
-		}
-		if !failed {
-			b.WriteString("\n" + r.styleMuted.Render(" all checks pass"))
+			if r.width > 0 {
+				line = shorten(line, max(1, r.width-2))
+			}
+			b.WriteString("\n" + line)
+			if !c.OK {
+				if fix := doctorRemedy(c, rep.Project.Slug); fix != "" {
+					b.WriteString("\n" + r.styleMuted.Render("   fix: "+fix))
+				}
+			}
 		}
 	}
 	b.WriteString("\n\n" + r.styleMuted.Render("esc back · rivu doctor for full output"))

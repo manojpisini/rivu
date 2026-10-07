@@ -76,9 +76,16 @@ func TestDoctorDoneOpensHealthScreen(t *testing.T) {
 			t.Errorf("health view missing %q in %q", want, v)
 		}
 	}
-	// passing checks are summarised, not listed
-	if strings.Contains(v, "project documentation") {
-		t.Errorf("passing checks should not be listed: %q", v)
+	// every check is a finding (P4.13): pass lines stay, failures
+	// carry a fix, and the score is drawn as a bar
+	if !strings.Contains(v, "project documentation") {
+		t.Errorf("passing check must be listed as a finding: %q", v)
+	}
+	if !strings.Contains(v, "fix: add a workflow under .github/workflows") {
+		t.Errorf("failing CI check must offer its remedy: %q", v)
+	}
+	if !strings.Contains(v, "█") || !strings.Contains(v, "72/100") {
+		t.Errorf("score bar missing from %q", v)
 	}
 
 	// esc returns to the dashboard; ctrl+c quits

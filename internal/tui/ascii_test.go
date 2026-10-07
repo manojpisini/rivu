@@ -32,7 +32,7 @@ func TestUseASCIIGlyphs(t *testing.T) {
 // TestASCIISwapCoversEveryRenderedGlyph: the replacer is the whole
 // fallback — if a glyph is missing here it leaks through in ASCII mode.
 func TestASCIISwapCoversEveryRenderedGlyph(t *testing.T) {
-	in := "—·…›▸↑↓─│╭╮╰╯✓×• 60×15 …"
+	in := "—·…›▸↑↓─│╭╮╰╯✓×•█░ 60×15 …"
 	out := asciiSwap.Replace(in)
 	for _, r := range out {
 		if r > 127 {
