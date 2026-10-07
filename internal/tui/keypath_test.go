@@ -22,6 +22,7 @@ func TestActionGuardsExplainThemselves(t *testing.T) {
 		{"h", "Health checks unavailable"},
 		{"a", "Agent map unavailable"},
 		{"f", "Flow unavailable"},
+		{"g", "Master dashboard unavailable"},
 		{"r", "no service"},
 	} {
 		m, cmd := updateC(t, m, runeKey(tc.key))

@@ -118,6 +118,7 @@ type Root struct {
 	mapPrev      service.MapPreview // Map report payload (P4.15)
 	mapQ         string
 	mapScroll    int
+	masterRes    *service.Dashboard // Master Dashboard snapshot (P4.16)
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -354,6 +355,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.mapScroll = 0
 		r.screen = ScreenMap
 		return r, nil
+	case dashMsg:
+		r.dashboard.Status = ""
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not load the master dashboard: " + x.err.Error()})
+		}
+		r.masterRes = &x.d
+		r.screen = ScreenMasterDashboard
+		return r, nil
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
@@ -589,6 +598,8 @@ func (r Root) render() string {
 		body = r.doctorView()
 	case ScreenMap:
 		body = r.mapReportView()
+	case ScreenMasterDashboard:
+		body = r.masterView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))
@@ -795,6 +806,74 @@ func (r Root) mapReportView() string {
 // fileLines splits file content into lines without a trailing blank.
 func fileLines(s string) []string {
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+// Fixed column widths for the Master Dashboard, built once (AGENTS 8).
+var (
+	masterLabel = lipgloss.NewStyle().Width(24)
+	masterEvent = lipgloss.NewStyle().Width(12)
+)
+
+// masterView is the Master Dashboard (spec 3.3): portfolio numbers,
+// language bars and recent activity (P4.16).
+func (r Root) masterView() string {
+	var b strings.Builder
+	if r.masterRes == nil {
+		b.WriteString(r.styleTitle.Render("MASTER DASHBOARD"))
+		b.WriteString("\n\n" + r.styleMuted.Render("Loading…"))
+		b.WriteString("\n" + r.styleMuted.Render("esc back"))
+		return b.String()
+	}
+	d := *r.masterRes
+	b.WriteString(r.styleTitle.Render("MASTER DASHBOARD"))
+	b.WriteString("\n" + r.styleMuted.Render(fmt.Sprintf("Root: %s  Roots: %d  Last scan: %s  Health: %d/100",
+		d.Root, d.Roots, ago(d.LastScan), d.Stats.AvgHealth)))
+
+	b.WriteString("\n\nPortfolio")
+	b.WriteString("\n  " + masterLabel.Render("Total projects") + strconv.Itoa(d.Stats.Total))
+	for _, c := range d.Stats.ByFlow {
+		label := c.Name
+		if c.Name == "source" {
+			label = "source (untriaged)"
+		}
+		b.WriteString("\n  " + masterLabel.Render(label) + strconv.Itoa(c.Count))
+	}
+
+	b.WriteString("\n\nBy language")
+	if len(d.Stats.ByLanguage) == 0 {
+		b.WriteString("\n  " + r.styleMuted.Render("no projects yet"))
+	}
+	for _, c := range d.Stats.ByLanguage {
+		b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, d.Stats.Total) + "  " + strconv.Itoa(c.Count))
+	}
+
+	b.WriteString("\n\nRecent activity")
+	if len(d.Recent) == 0 {
+		b.WriteString("\n  " + r.styleMuted.Render("no activity recorded yet"))
+	}
+	for _, ev := range d.Recent {
+		b.WriteString("\n  " + masterEvent.Render(ago(ev.OccurredAt)) + ev.Event + "  " + ev.Name)
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render("esc back · g/m master"))
+
+	out := b.String()
+	if r.width > 0 {
+		ls := strings.Split(out, "\n")
+		for i, ln := range ls {
+			ls[i] = shorten(ln, max(1, r.width-2))
+		}
+		out = strings.Join(ls, "\n")
+	}
+	return out
+}
+
+// masterBar is the in-cell language bar (spec 3.3), capped at 8 cells
+// so one outlier cannot stretch the row. █ maps to # in ascii mode.
+func masterBar(n, total int) string {
+	if total <= 0 || n <= 0 {
+		return ""
+	}
+	return strings.Repeat("█", max(1, min(8, n*8/total)))
 }
 
 func (r Root) toastView(t Toast) string {

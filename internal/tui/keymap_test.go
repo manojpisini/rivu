@@ -96,9 +96,10 @@ func TestNavigationKeysDriveHandlers(t *testing.T) {
 	if m.Cursor != 1 {
 		t.Errorf("G cursor = %d, want last row (1)", m.Cursor)
 	}
+	// g opens the Master Dashboard now (spec 3.9); top stays on Home
 	m = update(t, m, runeKey("g"))
-	if m.Cursor != 0 {
-		t.Errorf("g cursor = %d, want 0", m.Cursor)
+	if m.Cursor != 1 {
+		t.Errorf("g cursor = %d, want unchanged (master, not top)", m.Cursor)
 	}
 	m.Query = "beta"
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})

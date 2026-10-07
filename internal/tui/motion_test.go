@@ -19,10 +19,10 @@ func motionFixture(t *testing.T) Model {
 	return nm.(Model)
 }
 
-// TestPageAndHalfMotions (P3.30): pgdn/pgup and ctrl+d/ctrl+u move by
-// the same row count the table actually renders; home/end jump to the
-// edges; g/G keep their vim top/bottom meaning (decision: g stays top,
-// the Master Dashboard gets M later).
+// TestPageAndHalfMotions (P3.30, revised by P4.16): pgdn/pgup and
+// ctrl+d/ctrl+u move by the same row count the table actually renders;
+// home/end jump to the edges; G stays bottom while g opens the Master
+// Dashboard (spec 3.9), so it no longer scrolls.
 func TestPageAndHalfMotions(t *testing.T) {
 	m := motionFixture(t)
 	rows := m.listRows()
@@ -61,9 +61,11 @@ func TestPageAndHalfMotions(t *testing.T) {
 	if m.Cursor != len(m.Visible)-1 {
 		t.Errorf("G cursor = %d, want last", m.Cursor)
 	}
+	// g opens the Master Dashboard (spec 3.9), so it no longer scrolls;
+	// top stays reachable on Home above
 	m, _ = updateC(t, m, runeKey("g"))
-	if m.Cursor != 0 {
-		t.Errorf("g cursor = %d, want 0 (g stays top, P3.30 decision)", m.Cursor)
+	if m.Cursor != len(m.Visible)-1 {
+		t.Errorf("g cursor = %d, want unchanged (master, not top)", m.Cursor)
 	}
 }
 

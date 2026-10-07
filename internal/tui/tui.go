@@ -265,8 +265,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.Cursor < len(m.Visible)-1 {
 				m.Cursor++
 			}
-		case key.Matches(x, keys.Top):
-			m.Cursor = 0
 		case key.Matches(x, keys.Bottom):
 			if len(m.Visible) > 0 {
 				m.Cursor = len(m.Visible) - 1
@@ -337,6 +335,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Running health checks…"
 			return m, doctorCmd(m.svc, q)
+		case key.Matches(x, keys.Master):
+			if m.svc == nil {
+				m.Status = "Master dashboard unavailable: no service in this session"
+				return m, nil
+			}
+			m.Status = "Loading master dashboard…"
+			return m, dashCmd(m.svc)
 		case key.Matches(x, keys.Map):
 			if m.svc == nil {
 				m.Status = "Agent map unavailable: no service in this session"
@@ -644,6 +649,20 @@ func mapPreviewCmd(svc service.Service, q string) tea.Cmd {
 	return func() tea.Msg {
 		prev, err := svc.MapPreview(q)
 		return mapPreviewMsg{q: q, prev: prev, err: err}
+	}
+}
+
+// dashMsg carries the Master Dashboard snapshot (P4.16).
+type dashMsg struct {
+	d   service.Dashboard
+	err error
+}
+
+// dashCmd loads the Master Dashboard off the UI thread.
+func dashCmd(svc service.Service) tea.Cmd {
+	return func() tea.Msg {
+		d, err := svc.Dashboard()
+		return dashMsg{d: d, err: err}
 	}
 }
 
