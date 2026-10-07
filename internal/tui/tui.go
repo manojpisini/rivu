@@ -53,6 +53,7 @@ type Model struct {
 	FocusSidebar   bool
 	Query          string
 	Picked         map[string]bool // multi-select set, keyed by project ID (P4.08)
+	Untriaged      bool            // smart filter: source stage past SLA (P4.12)
 	Width          int
 	Height         int
 	WorkspaceRoot  string
@@ -385,6 +386,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.actionMenu = true
 			m.actionCursor = 0
 			m.Status = ""
+			return m, nil
+		case key.Matches(x, keys.Untriaged):
+			m.Untriaged = !m.Untriaged
+			m.applyFilter()
+			if m.Untriaged {
+				sla := m.cfg.Flow.SourceSLADays
+				if sla < 1 {
+					sla = 14
+				}
+				m.Status = fmt.Sprintf("Untriaged on — source past %dd · %d shown", sla, len(m.Visible))
+			} else {
+				m.Status = ""
+			}
 			return m, nil
 		case key.Matches(x, keys.Source):
 			return m, SelectScreen(ScreenSource)
@@ -942,9 +956,16 @@ func (m *Model) applyFilter() {
 	}
 	flow := flowOrder[m.FlowCursor]
 	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(m.Query)))
+	sla := m.cfg.Flow.SourceSLADays
+	if sla < 1 {
+		sla = 14 // config default (config.go Flow defaults)
+	}
 	m.Visible = m.Visible[:0]
 	for _, p := range m.Projects {
 		if flow != allFlow && p.FlowStage != flow {
+			continue
+		}
+		if m.Untriaged && !isUntriaged(p, sla, time.Now()) {
 			continue
 		}
 		haystack := strings.ToLower(strings.Join([]string{
@@ -970,6 +991,17 @@ func (m *Model) applyFilter() {
 			}
 		}
 	}
+}
+
+// isUntriaged reports whether p is still in Source past the SLA
+// (spec 3.9 smart filter u): source stage, created more than slaDays
+// ago. A missing created_at is not enough evidence, so it counts as
+// triaged.
+func isUntriaged(p registry.Project, slaDays int, now time.Time) bool {
+	if p.FlowStage != "source" || p.CreatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(p.CreatedAt) > time.Duration(slaDays)*24*time.Hour
 }
 
 // selectSlug moves the cursor to slug and opens its full-screen detail
