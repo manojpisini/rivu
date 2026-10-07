@@ -1245,29 +1245,6 @@ func shorten(s string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-func wrapPath(s string, width int) string {
-	if width < 8 {
-		return shorten(s, width)
-	}
-	var lines []string
-	for len([]rune(s)) > width {
-		r := []rune(s)
-		cut := width
-		for i := width; i > width/2; i-- {
-			if r[i-1] == '\\' || r[i-1] == '/' {
-				cut = i
-				break
-			}
-		}
-		lines = append(lines, string(r[:cut]))
-		s = string(r[cut:])
-	}
-	if s != "" {
-		lines = append(lines, s)
-	}
-	return strings.Join(lines, "\n")
-}
-
 func fallback(value, defaultValue string) string {
 	if value == "" {
 		return defaultValue
