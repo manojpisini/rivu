@@ -808,7 +808,11 @@ func (m Model) View() string {
 		return m.flowPickerView()
 	}
 
-	header := m.header()
+	// The badge row wraps on narrow terminals, so budget the body from
+	// the wrapped height — bubbletea cuts the TOP lines of a frame that
+	// is taller than the terminal (standard_renderer.go), which would
+	// hide the header entirely.
+	header := bgStyle.Width(m.Width).Render(m.header())
 	footer := m.footer()
 	bodyHeight := max(10, m.Height-lipgloss.Height(header)-lipgloss.Height(footer)-1)
 
@@ -817,12 +821,12 @@ func (m Model) View() string {
 	case m.Width < 100: // single pane: project list only
 		row = m.projectPanel(m.Width-2, bodyHeight)
 	case m.Width < 120: // two panes: sidebar + list (spec 3.2)
-		sidebarWidth := clamp(m.Width/5, 20, 28)
+		sidebarWidth := clamp(m.Width/5, 24, 30)
 		row = lipgloss.JoinHorizontal(lipgloss.Top,
 			m.sidebar(sidebarWidth, bodyHeight), " ",
 			m.projectPanel(m.Width-sidebarWidth-3, bodyHeight))
 	default: // side detail at >=120 (P3.12): sidebar + list + detail
-		sidebarWidth := clamp(m.Width/5, 20, 28)
+		sidebarWidth := clamp(m.Width/5, 24, 30)
 		rightWidth := clamp(m.Width/3, 34, 52)
 		centerWidth := m.Width - sidebarWidth - rightWidth - 4
 		row = lipgloss.JoinHorizontal(lipgloss.Top,
@@ -920,7 +924,18 @@ func (m Model) sidebar(width, height int) string {
 	if m.FocusSidebar {
 		style = focusStyle
 	}
-	return style.Width(width - 2).Height(height - 2).Render(b.String())
+	out := style.Width(width - 2).Height(max(0, height-2)).Render(b.String())
+	// lipgloss only PADS to Height and never truncates, and a wrapped
+	// line still outgrows the budget: cap the rendered pane to height,
+	// keeping a proper bottom border (bubbletea cuts the frame's TOP
+	// lines otherwise and the header vanishes).
+	if height >= 2 {
+		if lines := strings.Split(out, "\n"); len(lines) > height {
+			empty := strings.Split(style.Width(width-2).Render(""), "\n")
+			out = strings.Join(append(lines[:height-1], empty[len(empty)-1]), "\n")
+		}
+	}
+	return out
 }
 
 // tableCols lists the optional project-table columns that fit at the
@@ -967,7 +982,8 @@ func padStartCell(s string, w int) string {
 // fit at the current window size (P3.30 page motions use the same
 // number the renderer shows).
 func (m Model) listRows() int {
-	body := max(10, m.Height-lipgloss.Height(m.header())-lipgloss.Height(m.footer())-1)
+	header := bgStyle.Width(m.Width).Render(m.header())
+	body := max(10, m.Height-lipgloss.Height(header)-lipgloss.Height(m.footer())-1)
 	return max(1, body-6)
 }
 

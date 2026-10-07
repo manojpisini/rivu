@@ -1,0 +1,44 @@
+RIVU PROJECT EXPLORER                                                                                                                                         /w
+ALL 3   SOURCE 1   ACTIVE 1   MAINT 1   RESEARCH 0   DELTA 0   AVG HEALTH 64/100   CURRENT —   LAST SCAN never                                                  
+╭────────────────────────────╮ ╭────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────────╮  
+│ FLOW                       │ │ ALL PROJECTS                                                       1/3 │ │ PROJECT DETAILS                                  │  
+│                            │ │   NAME                     PATH       LANGUAGE     CHANNEL     HEALTH  │ │                                                  │  
+│ ▸ ALL             3        │ │ ────────────────────────────────────────────────────────────────────── │ │ Beta                                             │  
+│   SOURCE          1        │ │ › Beta                     …/w/beta   rust                     61/100  │ │ beta                                             │  
+│   ACTIVE          1        │ │   Gamma                    …/w/gamma  go                       44/100  │ │                                                  │  
+│   MAINTENANCE     1        │ │   Alpha                    …/w/alpha  go                       88/100  │ │ Channel   —                                      │  
+│   RESEARCH        0        │ │                                                                        │ │ Flow      [ACTIVE]                               │  
+│   DELTA           0        │ │                                                                        │ │ Stack     tokio                                  │  
+│                            │ │                                                                        │ │ Git       [Git]                                  │  
+│ WORKSPACE                  │ │                                                                        │ │ Bank      [Bank:missing]                         │  
+│ /w                         │ │                                                                        │ │ Map       [Map:Missing]                          │  
+│                            │ │                                                                        │ │ Health    [Health:61]                            │  
+│ QUICK ACTIONS              │ │                                                                        │ │                                                  │  
+│ r  rescan                  │ │                                                                        │ │ HEALTH CHECKS                                    │  
+│ /  search                  │ │                                                                        │ │ ! Git missing — run `git init` in the project f… │  
+│ d  detail                  │ │                                                                        │ │ ! Bank missing — run `rivu doctor beta` to audit │  
+│ h  doctor                  │ │                                                                        │ │ ! Map missing — run `rivu agent sync beta`       │  
+│ a  map                     │ │                                                                        │ │ ! Health 61/100 is low — run `rivu doctor beta`  │  
+│ f  flow                    │ │                                                                        │ │                                                  │  
+│ o  reveal                  │ │                                                                        │ │                                                  │  
+│ y  copy path               │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+│                            │ │                                                                        │ │                                                  │  
+╰────────────────────────────╯ ╰────────────────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────────────────────╯  
+tab switch panel • k up • j down • / search • esc clear filter • enter open • r refresh • q quit                                                                

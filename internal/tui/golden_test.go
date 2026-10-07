@@ -1,35 +1,35 @@
 package tui
 
 import (
-	"flag"
-	"os"
-	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/exp/golden"
 	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service/fake"
 )
 
-// updateGolden rewrites the golden files; run:
-//
-//	go test ./internal/tui -run TestGoldenViews -update
-var updateGolden = flag.Bool("update", false, "rewrite golden files")
-
-// goldenRoot pins every variable the render could otherwise pick up
-// from the environment: fixed paths, zero scan times ("never"), no
-// toasts, and the UTF-8 glyph set.
-func goldenRoot() Root {
-	cfg := config.Default()
-	cfg.Workspace.Root = "/w"
-	r := NewRoot(&fake.Service{}, cfg)
-	m := r.dashboard
-	m.Projects = []registry.Project{
+// goldenProjects pins every variable the render could otherwise pick
+// up from the environment: fixed paths, zero scan times ("never").
+func goldenProjects() []registry.Project {
+	return []registry.Project{
 		{ID: "1", Name: "Alpha", Slug: "alpha", Path: "/w/alpha", Language: "go", FlowStage: "source", Stack: []string{"go", "sqlite"}, HealthScore: 88, OnDisk: true},
 		{ID: "2", Name: "Beta", Slug: "beta", Path: "/w/beta", Language: "rust", FlowStage: "active", Stack: []string{"tokio"}, HealthScore: 61},
 		{ID: "3", Name: "Gamma", Slug: "gamma", Path: "/w/gamma", Language: "go", FlowStage: "maintenance", HealthScore: 44},
 	}
+}
+
+// goldenRoot gives the model fixed paths, no toasts, the UTF-8 glyph
+// set and a root that exists; the service carries goldenProjects so a
+// live program's Init loads the same list.
+func goldenRoot() Root {
+	cfg := config.Default()
+	cfg.Workspace.Root = "/w"
+	r := NewRoot(&fake.Service{Projects: goldenProjects()}, cfg)
+	m := r.dashboard
+	m.Projects = goldenProjects()
 	m.RootExists = true
 	m.Status = ""
 	m.applyFilter()
@@ -54,25 +54,11 @@ func TestGoldenViews(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := goldenRoot()
 			r, _ = upd(t, r, tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
-			got := r.View()
-
-			golden := filepath.Join("testdata", "view_"+tc.name+".golden")
-			if *updateGolden {
-				if err := os.MkdirAll("testdata", 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				return
+			v := r.View()
+			if n := lipgloss.Height(v); n > tc.h {
+				t.Errorf("view is %d lines at height %d — bubbletea would cut the top lines", n, tc.h)
 			}
-			want, err := os.ReadFile(golden)
-			if err != nil {
-				t.Fatalf("read golden (run with -update to create): %v", err)
-			}
-			if got != string(want) {
-				t.Errorf("view at %s diverges from golden; re-run with -update if the change is intentional\n--- got ---\n%s", tc.name, got)
-			}
+			golden.RequireEqual(t, []byte(v))
 		})
 	}
 }
