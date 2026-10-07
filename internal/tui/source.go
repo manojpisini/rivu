@@ -41,26 +41,45 @@ type sourceWizard struct {
 	language   string
 	template   string
 	pkgManager string
-	input      textinput.Model
+	// step 4 Automation (P4.05): defaults match the CLI flags
+	// (--git true, --bridge false; Bank/Map open-editor on)
+	bank, bridge, git, buildMap, openEditor bool
+	editor                                  string
+	input                                   textinput.Model
 }
 
-// newSourceWizard opens step 1 with the Name field focused.
+// newSourceWizard opens step 1 with the Name field focused and the
+// Automation defaults the CLI flags use.
 func newSourceWizard() sourceWizard {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Width = 40
 	in.Focus()
-	return sourceWizard{input: in}
+	return sourceWizard{
+		bank:       true,
+		git:        true,
+		buildMap:   true,
+		openEditor: true,
+		input:      in,
+	}
 }
 
 // editable reports whether the focused field takes text input: Slug
-// and Flow stage are selector rows; Identity, Classification and
-// Stack type; Automation arrives with P4.05+.
+// and Flow stage are selector rows; Identity, Classification, Stack
+// and the Automation Editor field type; the Automation toggles use
+// space.
 func (w sourceWizard) editable() bool {
-	if w.step == 0 {
+	switch w.step {
+	case 0:
 		return w.field == 0 || w.field == 2
+	case 1:
+		return w.field >= 1
+	case 2:
+		return true
+	case 3:
+		return w.field == 5
 	}
-	return (w.step == 1 && w.field >= 1) || w.step == 2
+	return false
 }
 
 func (w sourceWizard) value() string {
@@ -74,6 +93,42 @@ func (w sourceWizard) value() string {
 		return ""
 	}
 	return w.valueAt(w.field)
+}
+
+// boolRow renders a yes/no toggle the way spec 3.5 shows it.
+func boolRow(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// gitRow is the Git init row: the bridge lock (spec 1.7) wins and the
+// row reads "via bridge" instead of its own value.
+func (w sourceWizard) gitRow() string {
+	if w.bridge {
+		return "via bridge"
+	}
+	return boolRow(w.git)
+}
+
+// toggle flips the focused Automation yes/no field; Git init is
+// locked while the bridge owns it.
+func (w *sourceWizard) toggle() {
+	switch w.field {
+	case 0:
+		w.bank = !w.bank
+	case 1:
+		w.bridge = !w.bridge
+	case 2:
+		if !w.bridge {
+			w.git = !w.git
+		}
+	case 3:
+		w.buildMap = !w.buildMap
+	case 4:
+		w.openEditor = !w.openEditor
+	}
 }
 
 // flowValue is the Flow stage the selector shows; "" means the
@@ -106,6 +161,10 @@ func (w sourceWizard) valueAt(i int) string {
 			return w.template
 		case 2:
 			return w.pkgManager
+		}
+	case 3:
+		if i == 5 {
+			return w.editor
 		}
 	}
 	return ""
@@ -153,6 +212,10 @@ func (w *sourceWizard) commitField() {
 			w.template = w.input.Value()
 		case 2:
 			w.pkgManager = w.input.Value()
+		}
+	case 3:
+		if w.field == 5 {
+			w.editor = w.input.Value()
 		}
 	}
 }
@@ -247,6 +310,12 @@ func (r Root) updateSource(k tea.KeyMsg) (Root, tea.Cmd) {
 			w.setFlow(int(k.String()[0] - '1'))
 			return r, nil
 		}
+	case " ":
+		// Automation toggles (P4.05); on the Editor row a space types
+		if w.step == 3 && w.field < 5 {
+			w.toggle()
+			return r, nil
+		}
 	}
 	if w.input.Focused() {
 		in, cmd := w.input.Update(k)
@@ -324,6 +393,27 @@ func (r Root) sourceView() string {
 			} else if v := w.valueAt(i); v != "" {
 				value = v
 			}
+		case 3:
+			if i == 5 { // Editor
+				if w.field == 5 {
+					value = w.input.View()
+				} else if w.editor != "" {
+					value = w.editor
+				}
+			} else {
+				switch i {
+				case 0:
+					value = boolRow(w.bank)
+				case 1:
+					value = boolRow(w.bridge)
+				case 2:
+					value = r.styleMuted.Render(w.gitRow())
+				case 3:
+					value = boolRow(w.buildMap)
+				case 4:
+					value = boolRow(w.openEditor)
+				}
+			}
 		}
 		line := "  " + padCell(f+":", 20) + value
 		if i == w.field {
@@ -337,6 +427,13 @@ func (r Root) sourceView() string {
 		}
 		if w.step == 1 && i == 0 && w.field == 0 {
 			b.WriteString(r.styleMuted.Render("  ←/→ or 1-5 to change the stage") + "\n")
+		}
+		if w.step == 3 && i == w.field && w.field < 5 {
+			if w.field == 2 && w.bridge {
+				b.WriteString(r.styleMuted.Render("  locked: the bridge owns git init (spec 1.7)") + "\n")
+			} else {
+				b.WriteString(r.styleMuted.Render("  space toggles") + "\n")
+			}
 		}
 	}
 	if len(step.fields) == 0 {

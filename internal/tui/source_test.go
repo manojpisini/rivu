@@ -15,6 +15,10 @@ func keyCtrlS() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlS} }
 func keyLeft() tea.KeyMsg  { return tea.KeyMsg{Type: tea.KeyLeft} }
 func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
 
+// keySpace mirrors what the TTY parser produces: Type=KeySpace with
+// the rune kept in Runes (bubbletea key.go:698-700).
+func keySpace() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}} }
+
 // openSource runs the `n` dispatch command and feeds the resulting
 // screen switch back into the model.
 func openSource(t *testing.T, r Root) Root {
@@ -314,5 +318,96 @@ func TestSourceStackStep(t *testing.T) {
 	r, _ = upd(t, r, keyEnter())
 	if r.src.step != 3 || r.src.language != "go" || r.src.template != "go-cli" || r.src.pkgManager != "go-mod" {
 		t.Fatalf("step 4 wizard = %+v", r.src)
+	}
+}
+
+// TestSourceAutomationStep (P4.05): space toggles the yes/no rows,
+// the bridge locks Git init to "via bridge" (spec 1.7), the Editor
+// row takes text, and the values survive into the dry run.
+func TestSourceAutomationStep(t *testing.T) {
+	r, _ := rootOf(t)
+	r = openSource(t, r)
+	for range 3 {
+		r, _ = upd(t, r, keyEnter())
+	}
+	if r.src.step != 3 || r.src.field != 0 {
+		t.Fatalf("automation open: step=%d field=%d", r.src.step, r.src.field)
+	}
+
+	v := r.View()
+	for _, want := range []string{"Source — Automation", "Create Bank:", "Bridge init (lode):", "Git init:", "Build Map:", "Open editor after:", "Editor:", "space toggles"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+	// CLI defaults: bank/git/map/open yes, bridge no
+	for _, want := range []string{"yes", "no"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+
+	// Create Bank toggles off and back on
+	r, _ = upd(t, r, keySpace())
+	if r.src.bank {
+		t.Fatal("space did not toggle Create Bank off")
+	}
+	r, _ = upd(t, r, keySpace())
+	if !r.src.bank {
+		t.Fatal("space did not toggle Create Bank back on")
+	}
+
+	// Git init toggles while the bridge is off
+	r, _ = upd(t, r, keyTab())
+	r, _ = upd(t, r, keyTab()) // field 2: Git init
+	r, _ = upd(t, r, keySpace())
+	if r.src.git {
+		t.Fatal("space did not toggle Git init off")
+	}
+	r, _ = upd(t, r, keySpace())
+	if !r.src.git {
+		t.Fatal("space did not toggle Git init back on")
+	}
+
+	// Bridge on locks the Git row to "via bridge"
+	r, _ = upd(t, r, keyShiftTab()) // field 1: Bridge
+	r, _ = upd(t, r, keySpace())
+	if !r.src.bridge {
+		t.Fatal("space did not toggle the bridge on")
+	}
+	r, _ = upd(t, r, keyTab()) // back to Git: locked
+	r, _ = upd(t, r, keySpace())
+	if !r.src.git {
+		t.Fatal("locked Git init must not toggle")
+	}
+	if r.src.gitRow() != "via bridge" {
+		t.Fatalf("gitRow = %q, want via bridge", r.src.gitRow())
+	}
+	if !strings.Contains(r.View(), "via bridge") {
+		t.Error("view missing the via bridge lock")
+	}
+	if !strings.Contains(r.View(), "the bridge owns git init") {
+		t.Error("view missing the lock explanation")
+	}
+
+	// Editor row takes text (space types there too)
+	for range 3 {
+		r, _ = upd(t, r, keyTab()) // fields 3, 4, 5
+	}
+	if r.src.field != 5 || !r.src.input.Focused() {
+		t.Fatalf("editor field=%d focused=%v", r.src.field, r.src.input.Focused())
+	}
+	for _, c := range "nvim" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	r, _ = upd(t, r, keySpace())
+	if r.src.editor != "nvim " {
+		t.Fatalf("editor = %q, want %q (space must type on the Editor row)", r.src.editor, "nvim ")
+	}
+
+	// everything survives into the dry run step
+	r, _ = upd(t, r, keyEnter())
+	if r.src.step != 4 || !r.src.bank || !r.src.bridge || !r.src.git || !r.src.buildMap || !r.src.openEditor || r.src.editor != "nvim " {
+		t.Fatalf("step 5 wizard = %+v", r.src)
 	}
 }
