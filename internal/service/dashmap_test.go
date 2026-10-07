@@ -41,6 +41,10 @@ func TestDashboardSnapshot(t *testing.T) {
 		if at.Count <= 0 {
 			t.Errorf("zero bucket leaked: %+v", at)
 		}
+		// Every counted bucket names a real project to jump to (P4.18).
+		if at.Sample != "alpha" && at.Sample != "beta" {
+			t.Errorf("bucket %s sample = %q, want one of the seeds", at.Key, at.Sample)
+		}
 	}
 }
 

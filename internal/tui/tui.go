@@ -62,6 +62,7 @@ type Model struct {
 	Current        registry.Project
 	HasCurrent     bool
 	DetailFull     bool
+	FixKey         string // attention bucket to pre-highlight in detail (P4.18)
 	search         textinput.Model
 	help           help.Model
 	svc            service.Service
@@ -180,6 +181,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch x.String() {
 			case "esc", "q", "d":
 				m.DetailFull = false
+				m.FixKey = ""
 				return m, nil
 			}
 		}
@@ -200,6 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(x, keys.Detail):
 			if _, ok := m.selectedProject(); ok {
 				m.DetailFull = true
+				m.FixKey = ""
 			} else {
 				m.Status = "Select a project to view its details"
 			}
@@ -1527,9 +1530,25 @@ func (m Model) detailsPanel(width, height int) string {
 func (m Model) detailFullView() string {
 	p, _ := m.selectedProject()
 	body := m.detailBody(p, min(m.Width-8, 76))
-	actions := mutedStyle.Render("[enter] open  [h] doctor  [m] build map  [r] rescan  [d/esc] back")
+	actions := mutedStyle.Render("[enter] open  [h] doctor  [a] map report  [r] rescan  [d/esc] back")
 	box := panelStyle.Render(body + "\n" + actions)
 	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
+}
+
+// fixHint words the pre-highlighted fix for an attention bucket (P4.18);
+// buckets without a TUI action say what to do by hand.
+func fixHint(key string) string {
+	switch key {
+	case "missing_map", "missing_bank":
+		return "press a to open the map report, then a again to rebuild Bank + Map"
+	case "mismatch_missing", "unregistered", "stale":
+		return "press r to rescan the workspace"
+	case "missing_git":
+		return "run git init in the project folder, then rescan (r)"
+	case "missing_readme":
+		return "add a README.md in the project folder"
+	}
+	return ""
 }
 
 // detailBody renders the spec 3.4 fields plus health checks with
@@ -1537,7 +1556,11 @@ func (m Model) detailFullView() string {
 func (m Model) detailBody(p registry.Project, width int) string {
 	var b strings.Builder
 	b.WriteString(selectedStyle.Render(p.Name) + "\n")
-	b.WriteString(mutedStyle.Render(p.Slug) + "\n\n")
+	b.WriteString(mutedStyle.Render(p.Slug) + "\n")
+	if m.FixKey != "" {
+		b.WriteString("\n" + selectedStyle.Render("FIX") + "  " + valueStyle.Render(fixHint(m.FixKey)) + "\n")
+	}
+	b.WriteString("\n")
 	b.WriteString(labelValue("Channel", fallback(p.Channel, "—")) + "\n")
 	b.WriteString(labelValue("Flow", stageBadge(p.FlowStage)) + "\n")
 	b.WriteString(labelValue("Stack", fallback(strings.Join(p.Stack, " › "), "—")) + "\n")

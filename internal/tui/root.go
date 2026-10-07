@@ -119,6 +119,7 @@ type Root struct {
 	mapQ         string
 	mapScroll    int
 	masterRes    *service.Dashboard // Master Dashboard snapshot (P4.16)
+	masterCursor int                // attention queue cursor (P4.18)
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -361,6 +362,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r.pushToast(Toast{Level: "bad", Text: "could not load the master dashboard: " + x.err.Error()})
 		}
 		r.masterRes = &x.d
+		r.masterCursor = 0
 		r.screen = ScreenMasterDashboard
 		return r, nil
 	case confirmMsg:
@@ -409,6 +411,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if r.screen == ScreenMap {
 				return r.mapKeys(x)
+			}
+			if r.screen == ScreenMasterDashboard {
+				return r.masterKeys(x)
 			}
 			return r, nil
 		}
@@ -745,6 +750,41 @@ func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return r, nil
 }
 
+// masterKeys drives the attention queue (P4.18): up/down pick a bucket,
+// enter opens that project's Detail with the fix pre-highlighted.
+func (r Root) masterKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
+	n := 0
+	if r.masterRes != nil {
+		n = len(r.masterRes.Attention)
+	}
+	switch x.String() {
+	case "up", "k":
+		r.masterCursor = max(0, r.masterCursor-1)
+	case "down", "j":
+		r.masterCursor = min(max(n-1, 0), r.masterCursor+1)
+	case "enter":
+		if n == 0 {
+			return r, nil
+		}
+		at := r.masterRes.Attention[min(r.masterCursor, n-1)]
+		if at.Sample == "" {
+			return r.pushToast(Toast{Level: "", Text: "no project in that bucket yet"})
+		}
+		// Drop the filters so the sample is always visible, then jump
+		// into its Detail with the fix line lit (spec 3.3).
+		r.dashboard.Query = ""
+		r.dashboard.Untriaged = false
+		r.dashboard.FlowCursor = 0
+		r.dashboard.applyFilter()
+		r.dashboard.selectSlug(at.Sample)
+		r.dashboard.FixKey = at.Key
+		r.dashboard.Status = ""
+		r.screen = ScreenDashboard
+		return r, nil
+	}
+	return r, nil
+}
+
 // mapLines is the scrollable body of the Map report: both on-disk
 // files plus the diff a rebuild would apply (P4.15).
 func (r Root) mapLines() []string {
@@ -843,9 +883,12 @@ func (r Root) masterView() string {
 	if len(d.Attention) == 0 {
 		b.WriteString("\n  " + r.styleMuted.Render("nothing needs attention"))
 	}
-	for _, at := range d.Attention {
-		b.WriteString("\n  " + r.styleErr.Render("!") + " " +
-			attentionLabel(at, r.cfg.Flow.StaleThresholdDays))
+	for i, at := range d.Attention {
+		mark := "  ! "
+		if i == r.masterCursor {
+			mark = r.styleErr.Render("> ! ")
+		}
+		b.WriteString("\n" + mark + attentionLabel(at, r.cfg.Flow.StaleThresholdDays))
 	}
 
 	b.WriteString("\n\nBy language")
@@ -863,7 +906,11 @@ func (r Root) masterView() string {
 	for _, ev := range d.Recent {
 		b.WriteString("\n  " + masterEvent.Render(ago(ev.OccurredAt)) + ev.Event + "  " + ev.Name)
 	}
-	b.WriteString("\n\n" + r.styleMuted.Render("esc back · g/m master"))
+	foot := "esc back · g/m master"
+	if len(d.Attention) > 0 {
+		foot = "up/down queue · enter fix · " + foot
+	}
+	b.WriteString("\n\n" + r.styleMuted.Render(foot))
 
 	out := b.String()
 	if r.width > 0 {

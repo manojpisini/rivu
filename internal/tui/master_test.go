@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/manojpisini/rivu/internal/registry"
 	"github.com/manojpisini/rivu/internal/service"
 )
@@ -115,5 +116,100 @@ func TestMasterDashboardErrorAndEmpty(t *testing.T) {
 		if !strings.Contains(v, want) {
 			t.Errorf("empty master view missing %q in %q", want, v)
 		}
+	}
+}
+
+// TestAttentionEnterJumpsToFix: enter on a bucket opens that project's
+// Detail with the fix line lit, clearing any active filter on the way,
+// and esc leaves no stale highlight behind (P4.18).
+func TestAttentionEnterJumpsToFix(t *testing.T) {
+	m, f := scanFixture(t)
+	// Beta is hidden by an active search; the jump must clear it
+	m.Query = "alpha"
+	m.applyFilter()
+	if len(m.Visible) != 1 {
+		t.Fatalf("setup: visible = %d, want only Alpha", len(m.Visible))
+	}
+	f.DashRes = service.Dashboard{
+		Attention: []service.Attention{{Key: "missing_map", Count: 1, Sample: "b"}},
+	}
+	m, cmd := updateC(t, m, runeKey("g"))
+	r, _ := rootOf(t)
+	r.dashboard = m
+	r, _ = upd(t, r, cmd())
+	if r.screen != ScreenMasterDashboard {
+		t.Fatalf("screen = %v, want master dashboard", r.screen)
+	}
+
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEnter})
+	if r.screen != ScreenDashboard {
+		t.Fatalf("screen = %v, want dashboard after enter", r.screen)
+	}
+	if !r.dashboard.DetailFull {
+		t.Fatal("enter must open the full-screen detail")
+	}
+	if r.dashboard.FixKey != "missing_map" {
+		t.Fatalf("FixKey = %q, want missing_map", r.dashboard.FixKey)
+	}
+	if r.dashboard.Query != "" {
+		t.Fatalf("Query = %q, want cleared so the sample is visible", r.dashboard.Query)
+	}
+	p, ok := r.dashboard.selectedProject()
+	if !ok || p.Slug != "b" {
+		t.Fatalf("selected = %+v, want the b sample", p)
+	}
+	r.dashboard.Width, r.dashboard.Height = 90, 30
+	view := r.dashboard.View()
+	if !strings.Contains(view, "FIX") || !strings.Contains(view, "then a again to rebuild Bank + Map") {
+		t.Errorf("detail view missing the pre-highlighted fix in %q", view)
+	}
+
+	// esc leaves no stale highlight for the next manual d
+	nm, _ := r.dashboard.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if nm.(Model).FixKey != "" {
+		t.Error("closing detail must clear the fix highlight")
+	}
+}
+
+// TestAttentionCursorClamps: the queue cursor never runs off the ends
+// and an empty queue ignores enter (P4.18).
+func TestAttentionCursorClamps(t *testing.T) {
+	m, f := scanFixture(t)
+	f.DashRes = service.Dashboard{
+		Attention: []service.Attention{
+			{Key: "missing_git", Count: 1, Sample: "a"},
+			{Key: "stale", Count: 2, Sample: "b"},
+		},
+	}
+	m, cmd := updateC(t, m, runeKey("g"))
+	r, _ := rootOf(t)
+	r.dashboard = m
+	r, _ = upd(t, r, cmd())
+
+	r, _ = upd(t, r, keyR('k'))
+	if r.masterCursor != 0 {
+		t.Errorf("cursor = %d, want clamped at 0", r.masterCursor)
+	}
+	r, _ = upd(t, r, keyR('j'))
+	r, _ = upd(t, r, keyR('j'))
+	if r.masterCursor != 1 {
+		t.Errorf("cursor = %d, want clamped at 1", r.masterCursor)
+	}
+	// enter on the stale bucket jumps to beta with the stale fix
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEnter})
+	if r.dashboard.FixKey != "stale" {
+		t.Fatalf("FixKey = %q, want stale", r.dashboard.FixKey)
+	}
+
+	// empty queue on the master screen: enter does nothing
+	r.masterRes = &service.Dashboard{}
+	r.masterCursor = 0
+	r.screen = ScreenMasterDashboard
+	r.dashboard.DetailFull = false
+	r.dashboard.FixKey = ""
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEnter})
+	if r.screen != ScreenMasterDashboard || r.dashboard.DetailFull {
+		t.Errorf("empty queue enter: screen=%v detail=%v, want no jump",
+			r.screen, r.dashboard.DetailFull)
 	}
 }
