@@ -1,0 +1,14 @@
+MAP - Alpha  map: stale  agents: present
+PROJECT_MAP.md
+# Alpha
+agent map line one
+agent map line two
+
+DIFF vs disk (a rebuilds):
+- stale header
++ fresh header
+
+AGENTS.md (create-if-missing, never overwritten)
+agents stay create-if-missing
+
+line 1/11 - up/down scroll - a rebuild - esc back

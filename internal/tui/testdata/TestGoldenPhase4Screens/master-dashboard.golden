@@ -1,0 +1,21 @@
+MASTER DASHBOARD
+Root: /w  Roots: 1  Last scan: never  Health: 64/100
+
+Portfolio
+  Total projects          3
+  source (untriaged)      1
+  active                  1
+  maintenance             1
+
+Needs attention
+> ! 1 project missing Map
+  ! 1 stale project (45d+)
+
+By language
+  go                      █████  2
+  rust                    ██  1
+
+Recent activity
+  never       flowed source -> active  Alpha
+
+up/down queue · enter fix · esc back · g/m master
