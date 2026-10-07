@@ -470,7 +470,7 @@ func (r Root) doctorView() string {
 	}
 	b.WriteString(r.styleTitle.Render(title))
 	if len(r.doctorRes) == 0 {
-		b.WriteString("\n\n" + r.styleMuted.Render("No projects to check yet — press n to source one"))
+		b.WriteString("\n\n" + r.styleMuted.Render("No projects to check yet — run `rivu source <path>` or press r to rescan."))
 		b.WriteString("\n" + r.styleMuted.Render("esc back"))
 		return b.String()
 	}

@@ -954,7 +954,15 @@ func (m Model) projectPanel(width, height int) string {
 		b.WriteString(line + "\n")
 	}
 	if len(m.Visible) == 0 {
-		b.WriteString("\n" + mutedStyle.Render("No projects match this view.") + "\n")
+		// Empty states teach the next action (P3.23).
+		switch {
+		case len(m.Projects) == 0:
+			b.WriteString("\n" + mutedStyle.Render("No projects yet — run `rivu source <path>` or press r to rescan.") + "\n")
+		case m.Query != "":
+			b.WriteString("\n" + mutedStyle.Render("No projects match your search — press esc to clear it.") + "\n")
+		default:
+			b.WriteString("\n" + mutedStyle.Render("Nothing in this stage — press 1-5 to switch stage, or r to rescan.") + "\n")
+		}
 	}
 	style := panelStyle
 	if !m.FocusSidebar {
@@ -967,7 +975,7 @@ func (m Model) projectPanel(width, height int) string {
 func (m Model) detailsPanel(width, height int) string {
 	p, ok := m.selectedProject()
 	if !ok {
-		return panelStyle.Width(width - 2).Height(height - 2).Render(titleStyle.Render("PROJECT DETAILS") + "\n\n" + mutedStyle.Render("Select a project to inspect it."))
+		return panelStyle.Width(width - 2).Height(height - 2).Render(titleStyle.Render("PROJECT DETAILS") + "\n\n" + mutedStyle.Render("Select a project (up/down to move, enter to open)."))
 	}
 	body := titleStyle.Render("PROJECT DETAILS") + "\n\n" + m.detailBody(p, width-4)
 	return panelStyle.Width(width - 2).Height(height - 2).Render(body)
