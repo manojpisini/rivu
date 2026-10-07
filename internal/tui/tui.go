@@ -52,6 +52,7 @@ type Model struct {
 	FlowCursor     int
 	FocusSidebar   bool
 	Query          string
+	Picked         map[string]bool // multi-select set, keyed by project ID (P4.08)
 	Width          int
 	Height         int
 	WorkspaceRoot  string
@@ -201,6 +202,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Query = ""
 			m.search.SetValue("")
 			m.applyFilter()
+		case key.Matches(x, keys.Pick):
+			p, ok := m.selectedProject()
+			if !ok {
+				m.Status = "Nothing to pick"
+				return m, nil
+			}
+			if m.Picked == nil {
+				m.Picked = map[string]bool{}
+			}
+			if m.Picked[p.ID] {
+				delete(m.Picked, p.ID)
+			} else {
+				m.Picked[p.ID] = true
+			}
+			if n := len(m.Picked); n > 0 {
+				m.Status = fmt.Sprintf("%d picked — f to flow · space to un-pick", n)
+			} else {
+				m.Status = ""
+			}
 		case key.Matches(x, keys.Up):
 			if m.FocusSidebar {
 				if m.FlowCursor > 0 {
@@ -390,6 +410,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ShowToast(Toast{Level: "good", Text: note}),
 			listCmd(m.svc),
 		)
+	case bulkFlowPlanMsg:
+		m.Status = ""
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "cannot move picked projects: " + x.err.Error()})
+		}
+		if len(x.res.Done) == 0 {
+			return m, ShowToast(Toast{Level: "bad", Text: "nothing to move to " + x.stage})
+		}
+		lines := []string{fmt.Sprintf("Flow %d projects: -> %s", len(x.res.Done), x.stage)}
+		for _, d := range x.res.Done {
+			lines = append(lines, flowPlanLines(d.Plan)...)
+		}
+		for _, f := range x.res.Failed {
+			lines = append(lines, "skipped "+f.Query+": "+f.Err.Error())
+		}
+		title := fmt.Sprintf("Flow %d projects to %s?", len(x.res.Done), x.stage)
+		svc, slugs, stage := m.svc, x.slugs, x.stage
+		return m, ConfirmPlan(title, lines, func() tea.Cmd {
+			return bulkFlowApplyCmd(svc, slugs, stage)
+		})
+	case bulkFlowApplyMsg:
+		m.Status = ""
+		total := len(x.res.Done) + len(x.res.Failed)
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "bulk flow failed: " + x.err.Error()})
+		}
+		// The picked set has served its purpose either way — partial
+		// failures are reported, not silently kept for a retry.
+		m.Picked = nil
+		if len(x.res.Failed) > 0 {
+			return m, tea.Batch(
+				ShowToast(Toast{Level: "bad", Text: fmt.Sprintf("moved %d of %d to %s — %s", len(x.res.Done), total, x.stage, x.res.Failed[0].Err)}),
+				listCmd(m.svc),
+			)
+		}
+		return m, tea.Batch(
+			ShowToast(Toast{Level: "good", Text: fmt.Sprintf("moved %d project(s) to %s", len(x.res.Done), x.stage)}),
+			listCmd(m.svc),
+		)
 	case tea.WindowSizeMsg:
 		m.Width = x.Width
 		m.Height = x.Height
@@ -561,11 +620,56 @@ func flowApplyCmd(svc service.Service, slug, stage string) tea.Cmd {
 	}
 }
 
+// bulkFlowPlanMsg is the dry-run Plan for a multi-select flow (P4.08).
+type bulkFlowPlanMsg struct {
+	slugs []string
+	stage string
+	res   service.BulkFlowResult
+	err   error
+}
+
+// bulkFlowApplyMsg is the applied bulk flow.
+type bulkFlowApplyMsg struct {
+	slugs []string
+	stage string
+	res   service.BulkFlowResult
+	err   error
+}
+
+func bulkFlowPlanCmd(svc service.Service, slugs []string, stage string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.FlowBulk(slugs, stage, false, true)
+		return bulkFlowPlanMsg{slugs: slugs, stage: stage, res: res, err: err}
+	}
+}
+
+func bulkFlowApplyCmd(svc service.Service, slugs []string, stage string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.FlowBulk(slugs, stage, false, false)
+		return bulkFlowApplyMsg{slugs: slugs, stage: stage, res: res, err: err}
+	}
+}
+
 // flowPickConfirm closes the picker and either explains why no move can
-// happen or asks the service for the dry-run Plan.
+// happen or asks the service for the dry-run Plan. With a multi-select
+// set (P4.08) the picked projects win over the cursor row.
 func (m Model) flowPickConfirm() (tea.Model, tea.Cmd) {
 	stage := flowOrder[m.flowPickCursor+1]
 	m.flowPick = false
+	if len(m.Picked) > 0 {
+		var qs []string
+		for _, p := range m.Projects {
+			if m.Picked[p.ID] && p.FlowStage != stage {
+				qs = append(qs, p.Slug)
+			}
+		}
+		if len(qs) == 0 {
+			m.Status = "All picked projects are already in " + stage
+			return m, nil
+		}
+		m.Status = fmt.Sprintf("Preparing %d moves to %s…", len(qs), stage)
+		return m, bulkFlowPlanCmd(m.svc, qs, stage)
+	}
 	p, ok := m.selectedProject()
 	if !ok {
 		m.Status = "Select a project to flow"
@@ -1110,9 +1214,13 @@ func (m Model) projectPanel(width, height int) string {
 
 	for i := start; i < end; i++ {
 		p := m.Visible[i]
-		marker := "  "
+		mark := " "
+		if m.Picked[p.ID] {
+			mark = "✓"
+		}
+		marker := mark + " "
 		if i == m.Cursor {
-			marker = "› "
+			marker = "›" + mark
 		}
 		lang := p.Language
 		if lang == "" {

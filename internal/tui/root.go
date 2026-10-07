@@ -273,6 +273,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := r.dashboard.Update(x)
 		r.dashboard = nm.(Model)
 		return r, cmd
+	case bulkFlowPlanMsg:
+		nm, cmd := r.dashboard.Update(x)
+		r.dashboard = nm.(Model)
+		return r, cmd
+	case bulkFlowApplyMsg:
+		nm, cmd := r.dashboard.Update(x)
+		r.dashboard = nm.(Model)
+		return r, cmd
 	case copyDoneMsg:
 		if x.err != nil {
 			return r.pushToast(Toast{Level: "bad", Text: "copy path failed: " + x.err.Error()})
