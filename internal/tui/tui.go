@@ -2,9 +2,13 @@ package tui
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -287,6 +291,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(x, keys.Help):
 			m.helpOpen = true
 			return m, nil
+		case key.Matches(x, keys.Copy):
+			if p, ok := m.selectedProject(); ok {
+				return m, copyPathCmd(p.Path)
+			}
+			m.Status = "Select a project to copy its path"
+			return m, nil
+		case key.Matches(x, keys.Reveal):
+			if p, ok := m.selectedProject(); ok {
+				return m, revealCmd(p.Path)
+			}
+			m.Status = "Select a project to reveal its folder"
+			return m, nil
 		}
 	case spinner.TickMsg:
 		if !m.scanning {
@@ -430,6 +446,50 @@ type mapDoneMsg struct {
 func mapCmd(svc service.Service, q string) tea.Cmd {
 	return func() tea.Msg {
 		return mapDoneMsg{q: q, err: svc.Map(q)}
+	}
+}
+
+// osc52 encodes s for the OSC 52 clipboard escape (P3.29); terminals
+// that ignore it simply drop the sequence.
+func osc52(s string) string {
+	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(s)) + "\x07"
+}
+
+// copyDoneMsg reports the OSC 52 write outcome.
+type copyDoneMsg struct{ err error }
+
+// copyPathCmd writes the OSC 52 sequence to stdout off the UI thread.
+func copyPathCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := io.WriteString(os.Stdout, osc52(path))
+		return copyDoneMsg{err: err}
+	}
+}
+
+// revealDoneMsg reports the file-manager launch outcome.
+type revealDoneMsg struct {
+	path string
+	err  error
+}
+
+// revealCmd opens the OS file manager at path (GUI, no TTY needed —
+// the argv is chosen from GOOS, never through a shell).
+func revealCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		var c *exec.Cmd
+		switch runtime.GOOS {
+		case "windows":
+			c = exec.Command("explorer", path)
+		case "darwin":
+			c = exec.Command("open", path)
+		default:
+			c = exec.Command("xdg-open", path)
+		}
+		if err := c.Start(); err != nil {
+			return revealDoneMsg{path: path, err: err}
+		}
+		go func() { _ = c.Wait() }()
+		return revealDoneMsg{path: path}
 	}
 }
 
@@ -818,7 +878,7 @@ func (m Model) sidebar(width, height int) string {
 	b.WriteString("\n" + titleStyle.Render("WORKSPACE") + "\n")
 	b.WriteString(mutedStyle.Render(shorten(m.WorkspaceRoot, width-4)) + "\n")
 	b.WriteString("\n" + titleStyle.Render("QUICK ACTIONS") + "\n")
-	b.WriteString(mutedStyle.Render("r  rescan\n/  search\no  open\nd  detail\nh  doctor\na  map\nf  flow"))
+	b.WriteString(mutedStyle.Render("r  rescan\n/  search\nd  detail\nh  doctor\na  map\nf  flow\no  reveal\ny  copy path"))
 	style := panelStyle
 	if m.FocusSidebar {
 		style = focusStyle

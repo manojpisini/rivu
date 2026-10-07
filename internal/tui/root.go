@@ -262,6 +262,16 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := r.dashboard.Update(x)
 		r.dashboard = nm.(Model)
 		return r, cmd
+	case copyDoneMsg:
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "copy path failed: " + x.err.Error()})
+		}
+		return r.pushToast(Toast{Level: "good", Text: "path copied to the clipboard (OSC52)"})
+	case revealDoneMsg:
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "reveal failed: " + x.err.Error()})
+		}
+		return r.pushToast(Toast{Level: "good", Text: "folder revealed: " + x.path})
 	case doctorDoneMsg:
 		r.dashboard.Status = ""
 		if x.err != nil {

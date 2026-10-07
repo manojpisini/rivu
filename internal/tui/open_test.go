@@ -59,7 +59,7 @@ func TestOpenKeysBuildLaunchCommands(t *testing.T) {
 	// default cfg lists "code" as GUI -> Start() path (cmd non-nil, no TTY)
 	m, _ := scanFixture(t)
 	m.cfg = config.Default()
-	m, cmd := updateC(t, m, runeKey("o"))
+	m, cmd := updateC(t, m, keyEnter())
 	if cmd == nil {
 		t.Fatal("GUI open must return a background start command")
 	}
@@ -71,7 +71,7 @@ func TestOpenKeysBuildLaunchCommands(t *testing.T) {
 	m2, _ := scanFixture(t)
 	m2.cfg = config.Default()
 	m2.cfg.Editors.GUI = nil
-	m2, cmd2 := updateC(t, m2, runeKey("o"))
+	m2, cmd2 := updateC(t, m2, keyEnter())
 	if cmd2 == nil {
 		t.Fatal("terminal open must return an ExecProcess command")
 	}
@@ -81,7 +81,7 @@ func TestOpenErrorIsStickyToast(t *testing.T) {
 	m, f := scanFixture(t)
 	m.cfg = config.Default()
 	f.OpenErr = registry.ErrNotFound
-	m, cmd := updateC(t, m, runeKey("o"))
+	m, cmd := updateC(t, m, keyEnter())
 	if cmd == nil {
 		t.Fatal("failed open must return a toast command")
 	}
