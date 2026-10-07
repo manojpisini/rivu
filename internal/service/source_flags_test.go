@@ -107,8 +107,8 @@ func TestSourceOptsOverrideAutomation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry source: %v", err)
 	}
-	if len(dry.Plan.Bank) != 0 || len(dry.Plan.Write) != 0 {
-		t.Errorf("plan = %+v, want no Bank and no Map writes with the rows off", dry.Plan)
+	if len(dry.Plan.Bank) != 0 || len(dry.Plan.Write) != 0 || len(dry.Plan.Run) != 0 {
+		t.Errorf("plan = %+v, want no Bank, Map or sync with the rows off", dry.Plan)
 	}
 	sr, err := a.Source("no-bank", SourceOpts{CreateBank: &off, BuildMap: &off})
 	if err != nil {
@@ -135,6 +135,9 @@ func TestSourceOptsOverrideAutomation(t *testing.T) {
 	}
 	if !slices.Contains(dry.Plan.Write, ".metadata/agent/PROJECT_MAP.md") {
 		t.Errorf("plan.Write = %v, want the Map files", dry.Plan.Write)
+	}
+	if !slices.Contains(dry.Plan.Run, "rivu agent sync with-bank") {
+		t.Errorf("plan.Run = %v, want the Map sync line (spec 3.5)", dry.Plan.Run)
 	}
 	sr, err = a.Source("with-bank", SourceOpts{CreateBank: &on, BuildMap: &on})
 	if err != nil {

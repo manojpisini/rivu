@@ -300,6 +300,8 @@ func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 	}
 	if buildMap && !o.Adopt {
 		plan.Write = append(plan.Write, ".metadata/agent/AGENTS.md", ".metadata/agent/PROJECT_MAP.md")
+		// spec 3.5 dry run: the plan shows the Map sync it will run
+		plan.Run = append(plan.Run, "rivu agent sync "+s)
 	}
 	plan.Registry = append(plan.Registry, "register "+s)
 
