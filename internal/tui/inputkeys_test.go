@@ -19,7 +19,7 @@ func TestGlobalKeysInertWhileInputFocused(t *testing.T) {
 	for _, k := range []tea.KeyMsg{
 		runeKey("q"), runeKey("r"), runeKey("d"), runeKey("h"),
 		runeKey("m"), runeKey("g"), runeKey("G"), runeKey("1"), runeKey("/"),
-		runeKey("a"), runeKey("f"), runeKey("?"),
+		runeKey("a"), runeKey("f"), runeKey("n"), runeKey("?"),
 	} {
 		nm, cmd := m.Update(k)
 		if cmd != nil {
