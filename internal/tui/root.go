@@ -122,6 +122,9 @@ type Root struct {
 	masterCursor int                // attention queue cursor (P4.18)
 	statsRes     *service.Stats     // Stats screen snapshot (P4.19)
 	statsDaily   []int              // 30-day activity counts
+	statsCompact bool               // hide language/flow sections (P4.20)
+	statsExport  bool               // export format picker open (P4.20)
+	statsExportC int                // 0 = csv, 1 = json
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -376,6 +379,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.statsDaily = x.daily
 		r.screen = ScreenStats
 		return r, nil
+	case exportDoneMsg:
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "export failed: " + x.err.Error()})
+		}
+		return r.pushToast(Toast{Level: "", Text: "exported " + x.name})
 	case confirmMsg:
 		r.confirms = append(r.confirms, x.c)
 		return r, nil
@@ -403,9 +411,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, nil // the overlay swallows every other key
 		}
 		// "e" expands sticky errors, but never steals a typed search.
+		// Errors win over the Stats screen's export key so the banner's
+		// [e expand] hint is never a lie; clear them, then e exports.
 		if x.String() == "e" && len(r.errs) > 0 && !r.dashboard.search.Focused() {
 			r.errExpand = true
 			return r, nil
+		}
+		if r.screen == ScreenStats {
+			return r.statsKeys(x)
 		}
 		if r.screen == ScreenSource {
 			return r.updateSource(x)
@@ -798,6 +811,44 @@ func (r Root) masterKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return r, nil
 }
 
+// statsKeys drives the Stats screen (P4.20): t toggles the language
+// and flow breakdowns, e opens the csv/json export picker (spec 3.6).
+func (r Root) statsKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if r.statsExport {
+		switch x.String() {
+		case "esc", "q":
+			r.statsExport = false
+		case "enter":
+			r.statsExport = false
+			if r.statsRes == nil {
+				return r.pushToast(Toast{Level: "bad", Text: "nothing to export yet"})
+			}
+			format := "csv"
+			if r.statsExportC == 1 {
+				format = "json"
+			}
+			return r, exportCmd(format, *r.statsRes)
+		case "left", "right", "h", "l", "tab", "shift+tab":
+			r.statsExportC = 1 - r.statsExportC
+		case "ctrl+c":
+			return r, tea.Quit
+		}
+		return r, nil // the picker swallows every other key
+	}
+	switch x.String() {
+	case "esc", "q":
+		r.screen = ScreenDashboard
+	case "ctrl+c":
+		return r, tea.Quit
+	case "t":
+		r.statsCompact = !r.statsCompact
+	case "e":
+		r.statsExport = true
+		r.statsExportC = 0
+	}
+	return r, nil
+}
+
 // mapLines is the scrollable body of the Map report: both on-disk
 // files plus the diff a rebuild would apply (P4.15).
 func (r Root) mapLines() []string {
@@ -982,8 +1033,10 @@ func (r Root) statsView() string {
 			b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, st.Total) + "  " + strconv.Itoa(c.Count))
 		}
 	}
-	writeCounts("By language", st.ByLanguage)
-	writeCounts("By flow", st.ByFlow)
+	if !r.statsCompact {
+		writeCounts("By language", st.ByLanguage)
+		writeCounts("By flow", st.ByFlow)
+	}
 	writeCounts("By health", st.ByHealth)
 
 	b.WriteString("\n\nActivity (last 30 days)")
@@ -992,7 +1045,19 @@ func (r Root) statsView() string {
 	} else {
 		b.WriteString("\n  " + r.styleMuted.Render("no events yet"))
 	}
-	b.WriteString("\n\n" + r.styleMuted.Render("esc back"))
+	if r.statsExport {
+		b.WriteString("\n\nExport: ")
+		csv, js := "csv", "json"
+		if r.statsExportC == 0 {
+			csv = "[" + csv + "]"
+		} else {
+			js = "[" + js + "]"
+		}
+		b.WriteString(csv + " " + js)
+		b.WriteString("\n" + r.styleMuted.Render("left/right choose · enter save to ./stats.* · esc cancel"))
+	} else {
+		b.WriteString("\n\n" + r.styleMuted.Render("t toggle · e export · esc back"))
+	}
 
 	out := b.String()
 	if r.width > 0 {

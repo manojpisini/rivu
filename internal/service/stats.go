@@ -1,10 +1,14 @@
 package service
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -153,6 +157,47 @@ func healthBand(h int) string {
 	default:
 		return "0-49"
 	}
+}
+
+// StatsJSON writes the schema-1 document shared by `rivu stats --json`
+// and the Stats screen export (P4.20). ByLanguage is never null so
+// scripts always get an array.
+func StatsJSON(w io.Writer, st Stats) error {
+	if st.ByLanguage == nil {
+		st.ByLanguage = []Count{}
+	}
+	return json.NewEncoder(w).Encode(struct {
+		Schema int `json:"schema"`
+		Stats
+	}{Schema: 1, Stats: st})
+}
+
+// StatsCSV writes the metric,value table shared by `rivu stats --csv`
+// and the Stats screen export (P4.20).
+func StatsCSV(w io.Writer, st Stats) error {
+	cw := csv.NewWriter(w)
+	rows := [][]string{
+		{"metric", "value"},
+		{"range", st.Range},
+		{"projects", strconv.Itoa(st.Total)},
+		{"avg_health", strconv.Itoa(st.AvgHealth)},
+		{"median_health", strconv.Itoa(st.MedianHealth)},
+		{"stale", strconv.Itoa(st.Stale)},
+		{"missing_folder", strconv.Itoa(st.MissingFolder)},
+		{"missing_map", strconv.Itoa(st.MissingMap)},
+		{"missing_readme", strconv.Itoa(st.MissingReadme)},
+	}
+	for _, c := range st.ByFlow {
+		rows = append(rows, []string{"flow_" + c.Name, strconv.Itoa(c.Count)})
+	}
+	for _, c := range st.ByLanguage {
+		rows = append(rows, []string{"language_" + c.Name, strconv.Itoa(c.Count)})
+	}
+	for _, c := range st.ByHealth {
+		rows = append(rows, []string{"health_" + strings.ReplaceAll(c.Name, "-", "_"), strconv.Itoa(c.Count)})
+	}
+	cw.WriteAll(rows)
+	return cw.Error()
 }
 
 // ActivityDaily exposes the registry's per-day event counts for the

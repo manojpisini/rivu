@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -37,15 +35,9 @@ metric,value table. The same numbers feed the Stats screen (spec 3.6).`,
 			}
 			switch {
 			case asJSON:
-				if st.ByLanguage == nil {
-					st.ByLanguage = []service.Count{} // scripts get [], never null
-				}
-				return json.NewEncoder(os.Stdout).Encode(struct {
-					Schema int `json:"schema"`
-					service.Stats
-				}{Schema: 1, Stats: st})
+				return service.StatsJSON(os.Stdout, st)
 			case asCSV:
-				return printStatsCSV(os.Stdout, st)
+				return service.StatsCSV(os.Stdout, st)
 			default:
 				printStatsText(st, a.Config.Flow.StaleThresholdDays)
 				return nil
@@ -91,30 +83,4 @@ func printStatsText(st service.Stats, staleDays int) {
 	if st.Range != "all" {
 		fmt.Printf("Range: %s\n", st.Range)
 	}
-}
-
-func printStatsCSV(w *os.File, st service.Stats) error {
-	cw := csv.NewWriter(w)
-	rows := [][]string{
-		{"metric", "value"},
-		{"range", st.Range},
-		{"projects", strconv.Itoa(st.Total)},
-		{"avg_health", strconv.Itoa(st.AvgHealth)},
-		{"median_health", strconv.Itoa(st.MedianHealth)},
-		{"stale", strconv.Itoa(st.Stale)},
-		{"missing_folder", strconv.Itoa(st.MissingFolder)},
-		{"missing_map", strconv.Itoa(st.MissingMap)},
-		{"missing_readme", strconv.Itoa(st.MissingReadme)},
-	}
-	for _, c := range st.ByFlow {
-		rows = append(rows, []string{"flow_" + c.Name, strconv.Itoa(c.Count)})
-	}
-	for _, c := range st.ByLanguage {
-		rows = append(rows, []string{"language_" + c.Name, strconv.Itoa(c.Count)})
-	}
-	for _, c := range st.ByHealth {
-		rows = append(rows, []string{"health_" + strings.ReplaceAll(c.Name, "-", "_"), strconv.Itoa(c.Count)})
-	}
-	cw.WriteAll(rows)
-	return cw.Error()
 }

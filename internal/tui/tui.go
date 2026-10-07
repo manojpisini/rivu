@@ -695,6 +695,34 @@ func statsCmd(svc service.Service) tea.Cmd {
 	}
 }
 
+// exportDoneMsg reports a finished stats export (P4.20).
+type exportDoneMsg struct {
+	name string
+	err  error
+}
+
+// exportCmd writes stats.csv or stats.json into the working directory
+// with the same encoders `rivu stats --csv/--json` uses (P4.20).
+func exportCmd(format string, st service.Stats) tea.Cmd {
+	return func() tea.Msg {
+		path := "stats." + format
+		f, err := os.Create(path)
+		if err != nil {
+			return exportDoneMsg{err: err}
+		}
+		defer f.Close()
+		if format == "json" {
+			err = service.StatsJSON(f, st)
+		} else {
+			err = service.StatsCSV(f, st)
+		}
+		if err != nil {
+			return exportDoneMsg{err: err}
+		}
+		return exportDoneMsg{name: path}
+	}
+}
+
 // osc52 encodes s for the OSC 52 clipboard escape (P3.29); terminals
 // that ignore it simply drop the sequence.
 func osc52(s string) string {
