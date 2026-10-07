@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -564,5 +565,153 @@ func TestSourceDryRunCancel(t *testing.T) {
 	}
 	if r.screen != ScreenDashboard {
 		t.Errorf("screen = %s, want dashboard", screenNames[r.screen])
+	}
+}
+
+// TestSourceIdentityHint (P4.07): the inline validation table behind
+// step 1 — missing, path-hostile and reserved names are explained.
+func TestSourceIdentityHint(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"", "Name is required"},
+		{"   ", "Name is required"},
+		{"a/b", "Name cannot be used as a project slug"},
+		{"..", "Name cannot be used as a project slug"},
+		{"CON", "Name cannot be used as a project slug"},
+		{"repo doctor", ""},
+	} {
+		if got := identityHint(tc.in); got != tc.want {
+			t.Errorf("identityHint(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSourceOptsMapping (P4.07): the wizard maps onto SourceOpts —
+// bridge lock pair carried, confluence tags split and trimmed, Dry
+// left to sourceCmd.
+func TestSourceOptsMapping(t *testing.T) {
+	w := sourceWizard{
+		flow: "active", typ: "cli", domain: "devtools",
+		language: "go", template: "go-cli", description: "does things",
+		confluences: " ship , , brand ",
+		git:         true, bridge: true,
+	}
+	o := w.opts()
+	if o.Flow != "active" || o.Type != "cli" || o.Domain != "devtools" ||
+		o.Language != "go" || o.Template != "go-cli" || o.Description != "does things" {
+		t.Errorf("opts = %+v", o)
+	}
+	if !o.Git || !o.Bridge {
+		t.Errorf("git/bridge = %v/%v, want both carried (spec 1.7 resolves them service-side)", o.Git, o.Bridge)
+	}
+	if len(o.Confluence) != 2 || o.Confluence[0] != "ship" || o.Confluence[1] != "brand" {
+		t.Errorf("confluences = %#v, want [ship brand] (empty entries dropped)", o.Confluence)
+	}
+	if o.Dry {
+		t.Error("opts() must not force Dry; sourceCmd sets it per call")
+	}
+}
+
+// TestSourceCancelWritesNothing (P4.07): esc leaves from every step
+// and q from a read-only row without the service ever being called.
+func TestSourceCancelWritesNothing(t *testing.T) {
+	for step := range 4 { // Identity .. Automation
+		r, f := rootOf(t)
+		r = openSource(t, r)
+		for range step {
+			r, _ = upd(t, r, keyEnter())
+		}
+		r, _ = upd(t, r, keyEsc())
+		if r.screen != ScreenDashboard {
+			t.Errorf("step %d: screen = %s after esc", step, screenNames[r.screen])
+		}
+		if n := len(f.Calls()); n != 0 {
+			t.Errorf("step %d: calls = %v, want none", step, f.Calls())
+		}
+	}
+	// q leaves from the read-only Flow row (step 2)
+	r, f := rootOf(t)
+	r = openSource(t, r)
+	r, _ = upd(t, r, keyEnter())
+	r, _ = upd(t, r, keyR('q'))
+	if r.screen != ScreenDashboard {
+		t.Errorf("q on the flow row: screen = %s", screenNames[r.screen])
+	}
+	if n := len(f.Calls()); n != 0 {
+		t.Errorf("q cancel calls = %v, want none", f.Calls())
+	}
+}
+
+// TestSourceDryRunError (P4.07): a failing preview lands as a sticky
+// error, shows the retry hint, and ctrl+s fires the preview again.
+func TestSourceDryRunError(t *testing.T) {
+	r, f := rootOf(t)
+	f.SourceErr = errors.New("db locked")
+	r = openSource(t, r)
+	for _, c := range "broken" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	var preview tea.Cmd
+	for range 3 {
+		r, _ = upd(t, r, keyEnter())
+	}
+	r, preview = upd(t, r, keyEnter())
+	if preview == nil {
+		t.Fatal("entering the dry run must request the plan")
+	}
+	r, _ = upd(t, r, preview())
+
+	if r.src.plan != nil || r.src.loading {
+		t.Fatalf("failed preview: plan=%v loading=%v", r.src.plan, r.src.loading)
+	}
+	if len(r.errs) == 0 || !strings.Contains(r.errs[0], "could not build the plan") {
+		t.Errorf("errs = %v, want the plan failure", r.errs)
+	}
+	if !strings.Contains(r.View(), "plan unavailable") {
+		t.Errorf("view missing the retry hint: %q", r.View())
+	}
+	r, retry := upd(t, r, keyCtrlS())
+	if retry == nil || !r.src.loading {
+		t.Error("ctrl+s must retry the preview")
+	}
+	r, _ = upd(t, r, retry())
+	if n := strings.Count(strings.Join(f.Calls(), "\n"), "Source broken"); n != 2 {
+		t.Errorf("calls = %v, want preview + retry", f.Calls())
+	}
+}
+
+// TestSourceApplyError (P4.07): a failing apply reports the failure
+// and does not jump anywhere.
+func TestSourceApplyError(t *testing.T) {
+	r, f := rootOf(t)
+	f.SourceRes = service.SourceResult{Plan: service.SourcePlan{Name: "doomed"}}
+	r = openSource(t, r)
+	for _, c := range "doomed" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	var preview tea.Cmd
+	for range 3 {
+		r, _ = upd(t, r, keyEnter())
+	}
+	r, preview = upd(t, r, keyEnter())
+	if preview == nil {
+		t.Fatal("entering the dry run must request the plan")
+	}
+	r, _ = upd(t, r, preview())
+
+	f.SourceErr = errors.New("disk full")
+	r, apply := upd(t, r, keyR('y'))
+	if apply == nil {
+		t.Fatal("y with a ready plan must apply")
+	}
+	r, _ = upd(t, r, apply())
+
+	if r.screen != ScreenDashboard {
+		t.Errorf("screen = %s, want dashboard after the failure", screenNames[r.screen])
+	}
+	if len(r.errs) == 0 || !strings.Contains(r.errs[0], "disk full") {
+		t.Errorf("errs = %v, want the apply failure", r.errs)
+	}
+	if r.pendingJump != "" || r.dashboard.DetailFull {
+		t.Errorf("failed apply must not jump: pending=%q full=%v", r.pendingJump, r.dashboard.DetailFull)
 	}
 }
