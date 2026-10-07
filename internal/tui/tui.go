@@ -729,6 +729,19 @@ func (m *Model) applyFilter() {
 	}
 }
 
+// selectSlug moves the cursor to slug and opens its full-screen detail
+// (the post-Source jump, P4.06). A slug the current filter hides is
+// skipped — the toast still reports where the project landed.
+func (m *Model) selectSlug(slug string) {
+	for i, p := range m.Visible {
+		if p.Slug == slug {
+			m.Cursor = i
+			m.DetailFull = true
+			return
+		}
+	}
+}
+
 // matchesQuery applies every whitespace token (AND): `field:value`
 // restricts the named field (name/slug/path/stack/lang), any other
 // token is a substring of the full haystack.

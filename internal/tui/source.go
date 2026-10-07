@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/manojpisini/rivu/internal/service"
 	"github.com/manojpisini/rivu/internal/slug"
 )
 
@@ -46,6 +47,9 @@ type sourceWizard struct {
 	bank, bridge, git, buildMap, openEditor bool
 	editor                                  string
 	input                                   textinput.Model
+	// step 5 Dry run (P4.06)
+	plan    *service.SourcePlan
+	loading bool
 }
 
 // newSourceWizard opens step 1 with the Name field focused and the
@@ -288,16 +292,32 @@ func (r Root) updateSource(k tea.KeyMsg) (Root, tea.Cmd) {
 			w.step++
 			w.field = 0
 			r.dashboard.Status = ""
+			if w.step == len(sourceSteps)-1 {
+				// step 5 opens by previewing the plan (spec 3.5)
+				w.loading = true
+				return r, sourceCmd(r.svc, w.name, w.opts(), true)
+			}
 			return r, w.focusField()
 		}
 		return r, nil
 	case "ctrl+s":
 		if w.step < len(sourceSteps)-1 {
 			r.dashboard.Status = fmt.Sprintf("Step %d of %d — enter to continue", w.step+1, len(sourceSteps))
-		} else {
-			r.dashboard.Status = "Nothing created yet — the dry run is not ready, press esc to leave"
+			return r, nil
 		}
-		return r, nil
+		return r.sourceConfirm()
+	case "y", "Y":
+		if w.step == len(sourceSteps)-1 {
+			return r.sourceConfirm()
+		}
+	case "n", "N":
+		// decline: nothing has been written, leave (spec 3.5 y/N)
+		if w.step == len(sourceSteps)-1 && !w.input.Focused() {
+			r.screen = ScreenDashboard
+			r.src = sourceWizard{}
+			r.dashboard.Status = ""
+			return r, nil
+		}
 	case "left", "right", "up", "down":
 		// the Flow stage selector (P4.03); on a text field the arrows
 		// move the input's cursor below
@@ -324,6 +344,65 @@ func (r Root) updateSource(k tea.KeyMsg) (Root, tea.Cmd) {
 		return r, cmd
 	}
 	return r, nil
+}
+
+// opts maps the wizard onto the service's Source inputs; the dry run
+// and the apply share it (spec 3.5).
+func (w sourceWizard) opts() service.SourceOpts {
+	var conv []string
+	for _, c := range strings.Split(w.confluences, ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			conv = append(conv, c)
+		}
+	}
+	return service.SourceOpts{
+		Flow:        w.flow,
+		Domain:      w.domain,
+		Type:        w.typ,
+		Language:    w.language,
+		Template:    w.template,
+		Description: w.description,
+		Confluence:  conv,
+		Git:         w.git,
+		Bridge:      w.bridge,
+	}
+}
+
+// sourceDryMsg is the previewed plan; sourceApplyMsg is the real run.
+type sourceDryMsg struct {
+	res service.SourceResult
+	err error
+}
+
+type sourceApplyMsg struct {
+	res service.SourceResult
+	err error
+}
+
+func sourceCmd(svc service.Service, name string, o service.SourceOpts, dry bool) tea.Cmd {
+	o.Dry = dry
+	return func() tea.Msg {
+		res, err := svc.Source(name, o)
+		if dry {
+			return sourceDryMsg{res: res, err: err}
+		}
+		return sourceApplyMsg{res: res, err: err}
+	}
+}
+
+// sourceConfirm is the dry step's confirm action (y / ctrl+s): with a
+// ready plan it applies for real, otherwise it (re)builds the preview.
+func (r Root) sourceConfirm() (Root, tea.Cmd) {
+	w := &r.src
+	if w.loading {
+		return r, nil
+	}
+	if w.plan == nil {
+		w.loading = true
+		return r, sourceCmd(r.svc, w.name, w.opts(), true)
+	}
+	w.loading = true
+	return r, sourceCmd(r.svc, w.name, w.opts(), false)
 }
 
 // arrowDir maps the selector's arrow keys to -1/+1.
@@ -437,7 +516,19 @@ func (r Root) sourceView() string {
 		}
 	}
 	if len(step.fields) == 0 {
-		b.WriteString(r.styleMuted.Render("Press ctrl+s to run the dry run.") + "\n")
+		// step 5: the SourcePlan preview + confirm (spec 3.5)
+		switch {
+		case w.loading:
+			b.WriteString(r.styleMuted.Render("Building the plan…"))
+		case w.plan == nil:
+			b.WriteString(r.styleErr.Render("! plan unavailable — ctrl+s retries"))
+		default:
+			b.WriteString(r.styleMuted.Render("Dry Run") + "\n")
+			for _, line := range sourcePlanLines(*w.plan) {
+				b.WriteString(line + "\n")
+			}
+			b.WriteString("\n" + r.styleTitle.Render("Confirm? y/N"))
+		}
 	}
 	if s := r.dashboard.Status; s != "" {
 		b.WriteString("\n" + r.styleMuted.Render(s))

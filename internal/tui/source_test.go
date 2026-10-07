@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/manojpisini/rivu/internal/registry"
+	"github.com/manojpisini/rivu/internal/service"
+	"github.com/manojpisini/rivu/internal/service/fake"
 )
 
 func keyTab() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyTab} }
@@ -72,9 +75,17 @@ func TestSourceWizardScaffold(t *testing.T) {
 	if !strings.Contains(v, "Source — Dry run") || !strings.Contains(v, "✓ 1 Identity") || !strings.Contains(v, "▸ 5 Dry run") {
 		t.Errorf("step 5 view missing updated indicator: %q", v)
 	}
-	r, _ = upd(t, r, keyCtrlS())
-	if !strings.Contains(r.dashboard.Status, "Nothing created") {
-		t.Errorf("ctrl+s at dry run = %q", r.dashboard.Status)
+	// arriving at the dry run kicks off the plan preview (P4.06);
+	// ctrl+s while it loads does nothing (single in-flight request)
+	if !r.src.loading {
+		t.Error("step 5 must start the plan preview")
+	}
+	r, c := upd(t, r, keyCtrlS())
+	if c != nil || !r.src.loading {
+		t.Error("ctrl+s during the preview must not fire a second request")
+	}
+	if !strings.Contains(r.View(), "Building the plan") {
+		t.Errorf("dry run view missing the loading line: %q", r.View())
 	}
 
 	// esc cancels everything; the wizard resets
@@ -409,5 +420,149 @@ func TestSourceAutomationStep(t *testing.T) {
 	r, _ = upd(t, r, keyEnter())
 	if r.src.step != 4 || !r.src.bank || !r.src.bridge || !r.src.git || !r.src.buildMap || !r.src.openEditor || r.src.editor != "nvim " {
 		t.Fatalf("step 5 wizard = %+v", r.src)
+	}
+}
+
+// walkToDry types a name, steps through to the Dry run and feeds the
+// plan preview command so r.src.plan is ready.
+func walkToDry(t *testing.T, r Root, f *fake.Service, name string) Root {
+	t.Helper()
+	for _, c := range name {
+		r, _ = upd(t, r, keyR(c))
+	}
+	for range 4 {
+		var c tea.Cmd
+		r, c = upd(t, r, keyEnter())
+		if c != nil {
+			r, _ = upd(t, r, c())
+		}
+	}
+	return r
+}
+
+// TestSourceDryRunApply (P4.06): step 5 previews the SourcePlan, y
+// applies, and the wizard jumps to the new project; n cancels after
+// the dry run with nothing but the preview call made.
+func TestSourceDryRunApply(t *testing.T) {
+	r, f := rootOf(t)
+	f.SourceRes = service.SourceResult{
+		Project: registry.Project{ID: "9", Slug: "quiet-repo", Name: "quiet repo", Path: "/w/00_Source/quiet-repo", FlowStage: "source"},
+		Plan: service.SourcePlan{
+			Name: "quiet repo", Channel: "00_Source",
+			Create: []string{"/w/00_Source/quiet-repo"},
+			Run:    []string{"git init"},
+		},
+	}
+	r = openSource(t, r)
+	r = walkToDry(t, r, f, "quiet repo")
+
+	if r.src.plan == nil || r.src.loading {
+		t.Fatalf("dry step: plan=%v loading=%v, want a ready plan", r.src.plan, r.src.loading)
+	}
+	v := r.View()
+	for _, want := range []string{"Source — Dry run", "Dry Run", "Will create /w/00_Source/quiet-repo", "Will run git init", "Confirm? y/N"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
+		}
+	}
+	if n := strings.Count(strings.Join(f.Calls(), "\n"), "Source quiet repo"); n != 1 {
+		t.Fatalf("calls = %v, want exactly the dry-run Source", f.Calls())
+	}
+
+	// y applies for real
+	r, cmd := upd(t, r, keyR('y'))
+	if cmd == nil {
+		t.Fatal("y with a ready plan must apply")
+	}
+	if !r.src.loading {
+		t.Error("apply must mark the wizard busy")
+	}
+	r, cmd = upd(t, r, cmd())
+	if r.screen != ScreenDashboard {
+		t.Fatalf("screen = %s, want dashboard after apply", screenNames[r.screen])
+	}
+	if r.pendingJump != "quiet-repo" {
+		t.Errorf("pendingJump = %q", r.pendingJump)
+	}
+	if n := strings.Count(strings.Join(f.Calls(), "\n"), "Source quiet repo"); n != 2 {
+		t.Errorf("calls = %v, want dry-run + apply", f.Calls())
+	}
+
+	// the refreshed list (with the new project) lands via the batch:
+	// the toast queues and the detail opens on the new project
+	f.Projects = append(f.Projects, registry.Project{ID: "9", Slug: "quiet-repo", Name: "quiet repo", FlowStage: "source"})
+	bm, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("apply returned %T, want a batch of refresh+toast", cmd())
+	}
+	for _, c := range bm {
+		r, _ = upd(t, r, c())
+	}
+	if len(r.toasts) == 0 || !strings.Contains(r.toasts[0].Text, "Sourced quiet repo") {
+		t.Errorf("toasts = %+v, want the sourced line", r.toasts)
+	}
+	if r.pendingJump != "" {
+		t.Errorf("pendingJump = %q after refresh, want consumed", r.pendingJump)
+	}
+	if !r.dashboard.DetailFull || r.dashboard.Cursor >= len(r.dashboard.Visible) ||
+		r.dashboard.Visible[r.dashboard.Cursor].Slug != "quiet-repo" {
+		t.Errorf("jump: full=%v cursor=%d visible=%+v", r.dashboard.DetailFull, r.dashboard.Cursor, r.dashboard.Visible)
+	}
+}
+
+// TestSourceDryRunCancel: n (and esc) leave without the apply ever
+// running, and a preview that returns after cancel is dropped.
+func TestSourceDryRunCancel(t *testing.T) {
+	r, f := rootOf(t)
+	f.SourceRes = service.SourceResult{
+		Project: registry.Project{ID: "9", Slug: "quiet-repo", Name: "quiet repo", Path: "/w/00_Source/quiet-repo"},
+		Plan:    service.SourcePlan{Name: "quiet repo"},
+	}
+
+	// n declines with the plan on screen
+	r = openSource(t, r)
+	for _, c := range "quiet repo" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	for range 3 {
+		r, _ = upd(t, r, keyEnter())
+	}
+	var preview tea.Cmd
+	r, preview = upd(t, r, keyEnter()) // -> dry run, preview in flight
+	if preview == nil {
+		t.Fatal("entering the dry run must request the plan")
+	}
+	r, _ = upd(t, r, preview())
+	if r.src.plan == nil {
+		t.Fatal("preview did not load")
+	}
+	r, _ = upd(t, r, keyR('n'))
+	if r.screen != ScreenDashboard {
+		t.Fatalf("screen = %s after n, want dashboard", screenNames[r.screen])
+	}
+	if n := strings.Count(strings.Join(f.Calls(), "\n"), "Source"); n != 1 {
+		t.Errorf("calls = %v, want only the dry run", f.Calls())
+	}
+
+	// esc while the preview is still in flight drops the stale result
+	r = openSource(t, r)
+	for _, c := range "late" {
+		r, _ = upd(t, r, keyR(c))
+	}
+	var late tea.Cmd
+	for range 3 {
+		r, _ = upd(t, r, keyEnter())
+	}
+	r, late = upd(t, r, keyEnter())
+	if late == nil {
+		t.Fatal("preview cmd missing")
+	}
+	r, _ = upd(t, r, keyEsc())
+	r, _ = upd(t, r, late())
+	if r.src.plan != nil || r.src.loading {
+		t.Errorf("stale preview survived cancel: plan=%v loading=%v", r.src.plan, r.src.loading)
+	}
+	if r.screen != ScreenDashboard {
+		t.Errorf("screen = %s, want dashboard", screenNames[r.screen])
 	}
 }

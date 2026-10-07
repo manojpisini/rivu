@@ -101,6 +101,7 @@ type Root struct {
 
 	dashboard    Model
 	src          sourceWizard
+	pendingJump  string // slug to select once the post-apply list lands (P4.06)
 	current      registry.Project
 	hasCurrent   bool
 	toasts       []Toast
@@ -241,6 +242,10 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		r.dashboard.Projects = x.ps
 		r.dashboard.applyFilter()
+		if r.pendingJump != "" {
+			r.dashboard.selectSlug(r.pendingJump)
+			r.pendingJump = ""
+		}
 		return r, nil
 	case currentMsg:
 		r.current, r.hasCurrent = x.p, x.ok
@@ -278,6 +283,31 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r.pushToast(Toast{Level: "bad", Text: "reveal failed: " + x.err.Error()})
 		}
 		return r.pushToast(Toast{Level: "good", Text: "folder revealed: " + x.path})
+	case sourceDryMsg:
+		// stale when the wizard was cancelled while the preview ran
+		if r.screen != ScreenSource || !r.src.loading {
+			return r, nil
+		}
+		r.src.loading = false
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not build the plan: " + x.err.Error()})
+		}
+		p := x.res.Plan
+		r.src.plan = &p
+		return r, nil
+	case sourceApplyMsg:
+		// The apply already ran — its outcome is reported even if the
+		// wizard was left mid-flight (never silently drop a write).
+		r.src = sourceWizard{}
+		if x.err != nil {
+			r.screen = ScreenDashboard
+			return r.pushToast(Toast{Level: "bad", Text: "could not source the project: " + x.err.Error()})
+		}
+		r.screen = ScreenDashboard
+		r.dashboard.Status = ""
+		r.pendingJump = x.res.Project.Slug
+		toast := ShowToast(Toast{Level: "good", Text: fmt.Sprintf("Sourced %s at %s", x.res.Project.Name, x.res.Project.Path)})
+		return r, tea.Batch(r.loadProjects(), toast)
 	case doctorDoneMsg:
 		r.dashboard.Status = ""
 		if x.err != nil {
