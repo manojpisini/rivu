@@ -30,28 +30,30 @@ const allFlow = "all"
 var flowOrder = []string{allFlow, "source", "active", "maintenance", "research", "delta"}
 
 type Model struct {
-	Projects      []registry.Project
-	Visible       []registry.Project
-	Cursor        int
-	FlowCursor    int
-	FocusSidebar  bool
-	Query         string
-	Width         int
-	Height        int
-	WorkspaceRoot string
-	Status        string
-	Current       registry.Project
-	HasCurrent    bool
-	DetailFull    bool
-	search        textinput.Model
-	help          help.Model
-	svc           service.Service
-	cfg           config.Config
-	scanning      bool
-	scanCancel    context.CancelFunc
-	scanCount     *atomic.Int32
-	scanDirs      int
-	spin          spinner.Model
+	Projects       []registry.Project
+	Visible        []registry.Project
+	Cursor         int
+	FlowCursor     int
+	FocusSidebar   bool
+	Query          string
+	Width          int
+	Height         int
+	WorkspaceRoot  string
+	Status         string
+	Current        registry.Project
+	HasCurrent     bool
+	DetailFull     bool
+	search         textinput.Model
+	help           help.Model
+	svc            service.Service
+	cfg            config.Config
+	scanning       bool
+	scanCancel     context.CancelFunc
+	scanCount      *atomic.Int32
+	scanDirs       int
+	spin           spinner.Model
+	flowPick       bool
+	flowPickCursor int
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
@@ -91,6 +93,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Query = m.search.Value()
 				m.applyFilter()
 				return m, cmd
+			}
+			return m, nil
+		}
+
+		// The stage picker owns the keyboard until enter/esc.
+		if m.flowPick {
+			switch {
+			case key.Matches(x, keys.Up):
+				if m.flowPickCursor > 0 {
+					m.flowPickCursor--
+				}
+			case key.Matches(x, keys.Down):
+				if m.flowPickCursor < len(flowOrder)-2 {
+					m.flowPickCursor++
+				}
+			case key.Matches(x, keys.SearchDone):
+				return m.flowPickConfirm()
+			case x.String() == "esc":
+				m.flowPick = false
+				m.Status = ""
 			}
 			return m, nil
 		}
@@ -236,6 +258,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Building agent map…"
 			return m, mapCmd(m.svc, p.Slug)
+		case key.Matches(x, keys.Flow):
+			if m.svc == nil {
+				m.Status = "Flow unavailable: no service in this session"
+				return m, nil
+			}
+			if _, ok := m.selectedProject(); !ok {
+				m.Status = "Select a project to flow"
+				return m, nil
+			}
+			m.flowPick = true
+			m.flowPickCursor = 0
+			m.Status = ""
+			return m, nil
 		}
 	case spinner.TickMsg:
 		if !m.scanning {
@@ -262,6 +297,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The map flags changed - refresh the list and confirm.
 		return m, tea.Batch(
 			ShowToast(Toast{Level: "good", Text: "agent map built for " + x.q}),
+			listCmd(m.svc),
+		)
+	case flowPlanMsg:
+		m.Status = ""
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "cannot move " + x.slug + ": " + x.err.Error()})
+		}
+		title := fmt.Sprintf("Flow %s: %s -> %s?", x.slug, x.res.Plan.FromStage, x.res.Plan.ToStage)
+		svc := m.svc
+		return m, ConfirmPlan(title, flowPlanLines(x.res.Plan), func() tea.Cmd {
+			return flowApplyCmd(svc, x.slug, x.stage)
+		})
+	case flowApplyMsg:
+		m.Status = ""
+		if x.err != nil {
+			return m, ShowToast(Toast{Level: "bad", Text: "flow failed for " + x.slug + ": " + x.err.Error()})
+		}
+		note := x.res.Note
+		if note == "" {
+			note = fmt.Sprintf("%s moved to %s", x.slug, x.stage)
+		}
+		return m, tea.Batch(
+			ShowToast(Toast{Level: "good", Text: note}),
 			listCmd(m.svc),
 		)
 	case tea.WindowSizeMsg:
@@ -357,6 +415,83 @@ func mapCmd(svc service.Service, q string) tea.Cmd {
 	return func() tea.Msg {
 		return mapDoneMsg{q: q, err: svc.Map(q)}
 	}
+}
+
+// flowPlanMsg is a dry-run Flow result; it opens the Plan modal.
+type flowPlanMsg struct {
+	slug  string
+	stage string
+	res   service.FlowResult
+	err   error
+}
+
+// flowApplyMsg is the applied Flow result.
+type flowApplyMsg struct {
+	slug  string
+	stage string
+	res   service.FlowResult
+	err   error
+}
+
+// flowPlanCmd asks the service for the dry-run Plan (no changes).
+func flowPlanCmd(svc service.Service, slug, stage string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.Flow(slug, stage, false, true)
+		return flowPlanMsg{slug: slug, stage: stage, res: res, err: err}
+	}
+}
+
+// flowApplyCmd performs the confirmed move (Plan -> Apply, spec 1.4.3).
+func flowApplyCmd(svc service.Service, slug, stage string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := svc.Flow(slug, stage, false, false)
+		return flowApplyMsg{slug: slug, stage: stage, res: res, err: err}
+	}
+}
+
+// flowPickConfirm closes the picker and either explains why no move can
+// happen or asks the service for the dry-run Plan.
+func (m Model) flowPickConfirm() (tea.Model, tea.Cmd) {
+	stage := flowOrder[m.flowPickCursor+1]
+	m.flowPick = false
+	p, ok := m.selectedProject()
+	if !ok {
+		m.Status = "Select a project to flow"
+		return m, nil
+	}
+	if p.FlowStage == stage {
+		m.Status = p.Name + " is already in " + stage
+		return m, nil
+	}
+	m.Status = "Preparing move to " + stage + "…"
+	return m, flowPlanCmd(m.svc, p.Slug, stage)
+}
+
+// flowPickerView centres the stage list: up/down choose, enter builds
+// the Plan, esc cancels. Current stage is marked, not hidden.
+func (m Model) flowPickerView() string {
+	var b strings.Builder
+	title := "FLOW — choose a stage"
+	if p, ok := m.selectedProject(); ok {
+		title = "FLOW — move " + p.Name
+	}
+	b.WriteString(titleStyle.Render(title))
+	for i, s := range flowOrder[1:] {
+		line := "  " + s
+		if i == m.flowPickCursor {
+			line = selectedStyle.Render("> " + s)
+		}
+		if p, ok := m.selectedProject(); ok && p.FlowStage == s {
+			line += mutedStyle.Render("  (current)")
+		}
+		b.WriteString("\n" + line)
+	}
+	b.WriteString("\n\n" + mutedStyle.Render("↑↓ choose stage · enter plan · esc cancel"))
+	box := panelStyle.Render(b.String())
+	if m.Width > 0 && m.Height > 0 {
+		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box)
+	}
+	return box
 }
 
 // listCmd re-queries the registry; Root applies projectsMsg.
@@ -524,6 +659,9 @@ func (m Model) View() string {
 			return m.detailFullView()
 		}
 	}
+	if m.flowPick {
+		return m.flowPickerView()
+	}
 
 	header := m.header()
 	footer := m.footer()
@@ -632,7 +770,7 @@ func (m Model) sidebar(width, height int) string {
 	b.WriteString("\n" + titleStyle.Render("WORKSPACE") + "\n")
 	b.WriteString(mutedStyle.Render(shorten(m.WorkspaceRoot, width-4)) + "\n")
 	b.WriteString("\n" + titleStyle.Render("QUICK ACTIONS") + "\n")
-	b.WriteString(mutedStyle.Render("r  rescan hint\n/  search\no  open hint\nd  doctor hint\nm  map hint"))
+	b.WriteString(mutedStyle.Render("r  rescan\n/  search\no  open\nd  detail\nh  doctor\na  map\nf  flow"))
 	style := panelStyle
 	if m.FocusSidebar {
 		style = focusStyle

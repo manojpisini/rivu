@@ -21,6 +21,7 @@ type keyMap struct {
 	Detail       key.Binding
 	Doctor       key.Binding
 	Map          key.Binding
+	Flow         key.Binding
 	StageDigit   key.Binding
 	StagePrev    key.Binding
 	StageNext    key.Binding
@@ -35,7 +36,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.SwitchPanel, k.Up, k.Down, k.Top, k.Bottom, k.StageDigit, k.StagePrev, k.StageNext},
-		{k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Refresh},
+		{k.Search, k.Clear, k.Open, k.Detail, k.Doctor, k.Map, k.Flow, k.Refresh},
 		{k.Quit},
 	}
 }
@@ -56,6 +57,7 @@ var keys = keyMap{
 	Detail:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "detail")),
 	Doctor:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "doctor")),
 	Map:          key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "build map")),
+	Flow:         key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "flow")),
 	StageDigit:   key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "switch stage")),
 	StagePrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("left", "prev stage")),
 	StageNext:    key.NewBinding(key.WithKeys("right"), key.WithHelp("right", "next stage")),
