@@ -441,7 +441,17 @@ func ShowToast(t Toast) tea.Cmd {
 
 // View renders the active screen, the toast lines and, when present,
 // the top modal centred over everything (spec: esc cancels it).
+// View is the single rendered frame; ASCII mode (P3.31) swaps every
+// non-ASCII glyph for a plain equivalent here, once.
 func (r Root) View() string {
+	v := r.render()
+	if asciiGlyphs {
+		return asciiSwap.Replace(v)
+	}
+	return v
+}
+
+func (r Root) render() string {
 	var body string
 	switch r.screen {
 	case ScreenDashboard:

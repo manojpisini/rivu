@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -753,6 +754,28 @@ func (m Model) selectedProject() (registry.Project, bool) {
 }
 
 var theme = style.GraphiteViolet
+
+// P3.31 ASCII fallback: when RIVU_ASCII=1 (or the locale says the
+// terminal cannot show UTF-8) every rendered non-ASCII glyph is swapped
+// for a width-1 plain equivalent at the single Root.View exit point —
+// one replacer instead of threading a flag through every builder.
+// Width-1 both sides keep lipgloss's layout maths honest.
+func useASCIIGlyphs(getenv func(string) string) bool {
+	if v := getenv("RIVU_ASCII"); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	locale := strings.ToLower(cmp.Or(getenv("LC_ALL"), getenv("LC_CTYPE"), getenv("LANG")))
+	return locale != "" && !strings.Contains(locale, "utf")
+}
+
+var asciiGlyphs = useASCIIGlyphs(os.Getenv)
+
+var asciiSwap = strings.NewReplacer(
+	"—", "-", "·", ".", "…", ".", "›", ">", "▸", ">",
+	"↑", "^", "↓", "v", "─", "-", "│", "|",
+	"╭", "+", "╮", "+", "╰", "+", "╯", "+",
+	"✓", "+", "×", "x", "•", ".",
+)
 
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
