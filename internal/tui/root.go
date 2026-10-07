@@ -839,6 +839,15 @@ func (r Root) masterView() string {
 		b.WriteString("\n  " + masterLabel.Render(label) + strconv.Itoa(c.Count))
 	}
 
+	b.WriteString("\n\nNeeds attention")
+	if len(d.Attention) == 0 {
+		b.WriteString("\n  " + r.styleMuted.Render("nothing needs attention"))
+	}
+	for _, at := range d.Attention {
+		b.WriteString("\n  " + r.styleErr.Render("!") + " " +
+			attentionLabel(at, r.cfg.Flow.StaleThresholdDays))
+	}
+
 	b.WriteString("\n\nBy language")
 	if len(d.Stats.ByLanguage) == 0 {
 		b.WriteString("\n  " + r.styleMuted.Render("no projects yet"))
@@ -874,6 +883,32 @@ func masterBar(n, total int) string {
 		return ""
 	}
 	return strings.Repeat("█", max(1, min(8, n*8/total)))
+}
+
+// attentionLabel words one triage bucket the way `rivu dashboard`
+// does, so the screen and the CLI never disagree (P4.17).
+func attentionLabel(at service.Attention, staleDays int) string {
+	noun := "projects"
+	if at.Count == 1 {
+		noun = "project"
+	}
+	switch at.Key {
+	case "mismatch_missing":
+		return fmt.Sprintf("%d %s registered but missing from disk", at.Count, noun)
+	case "unregistered":
+		return fmt.Sprintf("%d %s on disk not yet registered", at.Count, noun)
+	case "missing_git":
+		return fmt.Sprintf("%d %s missing git", at.Count, noun)
+	case "missing_bank":
+		return fmt.Sprintf("%d %s missing Bank", at.Count, noun)
+	case "missing_map":
+		return fmt.Sprintf("%d %s missing Map", at.Count, noun)
+	case "missing_readme":
+		return fmt.Sprintf("%d %s missing README", at.Count, noun)
+	case "stale":
+		return fmt.Sprintf("%d stale %s (%dd+)", at.Count, noun, staleDays)
+	}
+	return fmt.Sprintf("%d %s %s", at.Count, noun, at.Key)
 }
 
 func (r Root) toastView(t Toast) string {

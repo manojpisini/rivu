@@ -31,6 +31,13 @@ func TestMasterDashboardOpensAndRenders(t *testing.T) {
 		Recent: []registry.Activity{
 			{Slug: "alpha", Name: "Alpha", Event: "opened", OccurredAt: time.Now()},
 		},
+		// service.Dashboard already ranks these (spec 3.3); the screen
+		// must preserve that order (P4.17)
+		Attention: []service.Attention{
+			{Key: "missing_map", Count: 2},
+			{Key: "missing_git", Count: 1},
+			{Key: "stale", Count: 7},
+		},
 	}
 	m, cmd := updateC(t, m, runeKey("g"))
 	if cmd == nil {
@@ -54,11 +61,17 @@ func TestMasterDashboardOpensAndRenders(t *testing.T) {
 	for _, want := range []string{
 		"MASTER DASHBOARD", "Root: C:/ws", "Roots: 2", "Health: 74/100",
 		"Portfolio", "Total projects", "source (untriaged)", "active",
+		"Needs attention", "! 2 projects missing Map", "! 1 project missing git",
+		"! 7 stale projects (45d+)",
 		"By language", "Recent activity", "opened", "Alpha", "█",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("master view missing %q in %q", want, v)
 		}
+	}
+	// the queue keeps the service's rank order (P4.17)
+	if i, j := strings.Index(v, "missing Map"), strings.Index(v, "stale projects"); i > j {
+		t.Errorf("attention order lost: missing Map at %d after stale at %d", i, j)
 	}
 
 	// esc returns; m then opens it too (the alias from the task)
@@ -98,7 +111,7 @@ func TestMasterDashboardErrorAndEmpty(t *testing.T) {
 	m, cmd = updateC(t, m, runeKey("g"))
 	r, _ = upd(t, r, cmd())
 	v := r.View()
-	for _, want := range []string{"no projects yet", "no activity recorded yet", "Health: 0/100"} {
+	for _, want := range []string{"no projects yet", "nothing needs attention", "no activity recorded yet", "Health: 0/100"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("empty master view missing %q in %q", want, v)
 		}
