@@ -38,7 +38,12 @@ func Content(p registry.Project, ignore []string) (agentsBody, mapBody string) {
 	if agentsPurpose == "" {
 		agentsPurpose = "See `../overview.md`."
 	}
-	agentsBody = fmt.Sprintf("# Agent Instructions for %s\n\n## Read first\n1. `PROJECT_MAP.md`\n2. `../overview.md`\n3. `../tasks.md`\n4. `../decisions.md`\n\n## Project purpose\n%s\n\n## Important rules\n- Preserve the Bank (`.metadata/`).\n- Prefer small, tested changes.\n- Do not modify generated or vendor directories.\n\n## Ignore by default\n`.git`, `node_modules`, `vendor`, `target`, `dist`, `build`, caches.\n\n## Safe commands\nInspect project scripts and configuration before executing commands.\n", p.Name, agentsPurpose)
+	// M-04: named commands per toolchain; generic prose only as fallback.
+	safe := "Inspect project scripts and configuration before executing commands."
+	if cmds := safeCommands(p.Path); len(cmds) > 0 {
+		safe = list(cmds)
+	}
+	agentsBody = fmt.Sprintf("# Agent Instructions for %s\n\n## Read first\n1. `PROJECT_MAP.md`\n2. `../overview.md`\n3. `../tasks.md`\n4. `../decisions.md`\n\n## Project purpose\n%s\n\n## Important rules\n- Preserve the Bank (`.metadata/`).\n- Prefer small, tested changes.\n- Do not modify generated or vendor directories.\n\n## Ignore by default\n`.git`, `node_modules`, `vendor`, `target`, `dist`, `build`, caches.\n\n## Safe commands\n%s\n", p.Name, agentsPurpose, safe)
 	skip := skipSet(ignore)
 	files, dirs := rankedInventory(p.Path, skip)
 	mapPurpose := purpose
@@ -188,17 +193,42 @@ func renderRanked(items []rankItem) []string {
 // Makefile targets so agents can run the project without exploring.
 func scriptsAndTargets(root string) []string {
 	var out []string
-	if b, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
-		var pj struct {
-			Scripts map[string]string `json:"scripts"`
-		}
-		if json.Unmarshal(b, &pj) == nil {
-			for _, name := range slices.Sorted(maps.Keys(pj.Scripts)) {
-				out = append(out, "npm run "+name)
-			}
-		}
+	for _, name := range slices.Sorted(maps.Keys(packageScripts(root))) {
+		out = append(out, "npm run "+name)
 	}
-	out = append(out, makeTargets(root)...)
+	return append(out, makeTargets(root)...)
+}
+
+func packageScripts(root string) map[string]string {
+	b, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return nil
+	}
+	var pj struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(b, &pj) != nil {
+		return nil
+	}
+	return pj.Scripts
+}
+
+// safeCommands (M-04) derives the Safe commands list from detected
+// manifests: test entrypoints an agent can run without exploring.
+func safeCommands(root string) []string {
+	var out []string
+	if isFile(filepath.Join(root, "go.mod")) {
+		out = append(out, "go test ./...")
+	}
+	if _, ok := packageScripts(root)["test"]; ok {
+		out = append(out, "npm test")
+	}
+	if isFile(filepath.Join(root, "Cargo.toml")) {
+		out = append(out, "cargo test")
+	}
+	if slices.Contains(makeTargets(root), "make test") {
+		out = append(out, "make test")
+	}
 	return out
 }
 

@@ -353,3 +353,51 @@ func TestSecretsListedByNameOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestSafeCommandsFromToolchain (M-04): AGENTS.md Safe commands names
+// real test entrypoints per detected manifest, with the generic prose
+// only as the fallback when nothing is detected.
+func TestSafeCommandsFromToolchain(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  []string
+		bad   []string
+	}{
+		{"go", map[string]string{"go.mod": "module x\ngo 1.24\n"}, []string{"`go test ./...`"}, nil},
+		{"node with test script", map[string]string{"package.json": `{"scripts":{"test":"vitest"}}` + "\n"}, []string{"`npm test`"}, nil},
+		{"node without test script", map[string]string{"package.json": `{"scripts":{"build":"tsc"}}` + "\n"}, nil, []string{"npm test"}},
+		{"rust", map[string]string{"Cargo.toml": "[package]\nname = \"x\"\n"}, []string{"`cargo test`"}, nil},
+		{"make test target", map[string]string{"Makefile": "test:\n\tgo test ./...\n"}, []string{"`make test`"}, nil},
+		{"nothing detected", map[string]string{}, nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, body := range tc.files {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			agents, _ := Content(registry.Project{Name: "P", Slug: "p", Path: root}, nil)
+			i := strings.Index(agents, "## Safe commands")
+			if i < 0 {
+				t.Fatal("no Safe commands section")
+			}
+			safe := agents[i:]
+			for _, want := range tc.want {
+				if !strings.Contains(safe, want) {
+					t.Errorf("Safe commands missing %s:\n%s", want, safe)
+				}
+			}
+			for _, bad := range tc.bad {
+				if strings.Contains(safe, bad) {
+					t.Errorf("Safe commands should not contain %q:\n%s", bad, safe)
+				}
+			}
+			if len(tc.want) == 0 && !strings.Contains(safe, "Inspect project scripts") {
+				t.Errorf("fallback prose missing:\n%s", safe)
+			}
+		})
+	}
+}
