@@ -70,3 +70,55 @@ func TestDoubleInitCheck(t *testing.T) {
 		t.Error("check must be absent when no scaffold marker configured")
 	}
 }
+
+// TestDependencyCheck (D-01): every known manifest must ship a
+// lockfile; projects with no tracked manifest pass vacuously.
+func TestDependencyCheck(t *testing.T) {
+	cases := []struct {
+		name  string
+		files []string
+		want  bool
+	}{
+		{"no manifest", nil, true},
+		{"go locked", []string{"go.mod", "go.sum"}, true},
+		{"go unlocked", []string{"go.mod"}, false},
+		{"npm via yarn", []string{"package.json", "yarn.lock"}, true},
+		{"npm unlocked", []string{"package.json"}, false},
+		{"cargo locked", []string{"Cargo.toml", "Cargo.lock"}, true},
+		{"cargo unlocked", []string{"Cargo.toml"}, false},
+		{"python unlocked", []string{"pyproject.toml"}, false},
+		{"python via uv", []string{"pyproject.toml", "uv.lock"}, true},
+		{"maven has no lock convention", []string{"pom.xml"}, true},
+		{"one locked one not", []string{"go.mod", "go.sum", "package.json"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			for _, f := range tc.files {
+				if err := os.WriteFile(filepath.Join(d, f), []byte("x"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c := depCheck(d)
+			if c.OK != tc.want {
+				t.Errorf("OK=%v (%s), want %v", c.OK, c.Detail, tc.want)
+			}
+			if c.Name != "Dependencies" || c.Weight != 5 {
+				t.Errorf("check = %+v, want Dependencies weight 5", c)
+			}
+		})
+	}
+
+	// The score consequence: an unlocked manifest costs the +5.
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	base := Run(registry.Project{Path: d}, "").Score
+	if err := os.WriteFile(filepath.Join(d, "go.sum"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Run(registry.Project{Path: d}, "").Score; got != base+5 {
+		t.Errorf("lockfile adds %d to score, want +5 (base %d, got %d)", got-base, base, got)
+	}
+}

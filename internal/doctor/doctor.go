@@ -42,11 +42,55 @@ func gitInitOwner(path string) string {
 	return f.Rivu.GitInitOwner
 }
 
+// depManifests pairs a dependency manifest with the lockfiles that
+// make its versions reproducible. Ecosystems without a lockfile
+// convention (Maven, Gradle, plain scripts) are deliberately absent —
+// there is nothing to verify for them.
+var depManifests = []struct {
+	manifest string
+	locks    []string
+}{
+	{"go.mod", []string{"go.sum"}},
+	{"package.json", []string{"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb"}},
+	{"Cargo.toml", []string{"Cargo.lock"}},
+	{"pyproject.toml", []string{"poetry.lock", "uv.lock"}},
+	{"Pipfile", []string{"Pipfile.lock"}},
+	{"Gemfile", []string{"Gemfile.lock"}},
+	{"composer.json", []string{"composer.lock"}},
+}
+
+// depCheck is the D-01 real dependency check: every known manifest
+// must ship a lockfile. A project with no tracked manifest passes
+// vacuously (there are no dependencies to pin).
+func depCheck(root string) Check {
+	tracked := false
+	for _, d := range depManifests {
+		if !ex(filepath.Join(root, d.manifest)) {
+			continue
+		}
+		tracked = true
+		locked := false
+		for _, l := range d.locks {
+			if ex(filepath.Join(root, l)) {
+				locked = true
+				break
+			}
+		}
+		if !locked {
+			return Check{"Dependencies", false, 5, "manifest without lockfile: " + d.manifest}
+		}
+	}
+	if !tracked {
+		return Check{"Dependencies", true, 5, "no dependency manifest"}
+	}
+	return Check{"Dependencies", true, 5, "manifest and lockfile present"}
+}
+
 // Run scores a project. scaffoldMark is the bridge tool's marker file name
 // ("" disables the exclusivity check); when the marker and .git coexist but
 // the Bank claims rivu ran init, that is a possible double-init (spec 1.7).
 func Run(p registry.Project, scaffoldMark string) Report {
-	checks := []Check{{"README", ex(filepath.Join(p.Path, "README.md")) || ex(filepath.Join(p.Path, "README")), 20, "project documentation"}, {"Git", ex(filepath.Join(p.Path, ".git")), 15, "version control"}, {"Bank", ex(filepath.Join(p.Path, ".metadata", "project.toml")), 15, "Rivu metadata"}, {"Map", ex(filepath.Join(p.Path, ".metadata", "agent", "PROJECT_MAP.md")), 15, "agent-readable map"}, {"Tests", ex(filepath.Join(p.Path, "tests")) || ex(filepath.Join(p.Path, "internal")), 10, "test structure"}, {"CI", ex(filepath.Join(p.Path, ".github", "workflows")), 10, "continuous integration"}, {"License", ex(filepath.Join(p.Path, "LICENSE")) || ex(filepath.Join(p.Path, "LICENSE.md")), 10, "license file"}, {"Dependencies", true, 5, "manifest inspection available"}}
+	checks := []Check{{"README", ex(filepath.Join(p.Path, "README.md")) || ex(filepath.Join(p.Path, "README")), 20, "project documentation"}, {"Git", ex(filepath.Join(p.Path, ".git")), 15, "version control"}, {"Bank", ex(filepath.Join(p.Path, ".metadata", "project.toml")), 15, "Rivu metadata"}, {"Map", ex(filepath.Join(p.Path, ".metadata", "agent", "PROJECT_MAP.md")), 15, "agent-readable map"}, {"Tests", ex(filepath.Join(p.Path, "tests")) || ex(filepath.Join(p.Path, "internal")), 10, "test structure"}, {"CI", ex(filepath.Join(p.Path, ".github", "workflows")), 10, "continuous integration"}, {"License", ex(filepath.Join(p.Path, "LICENSE")) || ex(filepath.Join(p.Path, "LICENSE.md")), 10, "license file"}, depCheck(p.Path)}
 	if scaffoldMark != "" {
 		doubleInit := ex(filepath.Join(p.Path, ".git")) &&
 			ex(filepath.Join(p.Path, scaffoldMark)) &&
