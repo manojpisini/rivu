@@ -1064,3 +1064,30 @@ func TestActivityDailyBucketsByCivilDay(t *testing.T) {
 		t.Errorf("ActivityDaily(0) = %v, %v; want empty", empty, err)
 	}
 }
+
+// TestStatesFlagsRootChannelProject (S-05): a registered project with
+// no real channel folder is reported as a stage mismatch even when its
+// flow stage reads "source" — placement must get fixed, not assumed.
+func TestStatesFlagsRootChannelProject(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	now := time.Now()
+	rows := []Project{
+		{ID: "r", Name: "r", Slug: "r", Path: "/r", Channel: RootChannel, FlowStage: "source", CreatedAt: now, OnDisk: true, Registered: true},
+		{ID: "ok", Name: "ok", Slug: "ok", Path: "/ok", Channel: "00_Source", FlowStage: "source", CreatedAt: now, OnDisk: true, Registered: true},
+	}
+	if _, err := r.ApplyDiscovery(rows); err != nil {
+		t.Fatal(err)
+	}
+	st, err := r.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.StageMismatch) != 1 || st.StageMismatch[0].ID != "r" {
+		t.Errorf("stageMismatch = %+v, want only the root project", st.StageMismatch)
+	}
+}

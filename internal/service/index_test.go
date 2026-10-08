@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/manojpisini/rivu/internal/registry"
 )
 
 func TestIndexReconcilesStageMismatch(t *testing.T) {
@@ -62,5 +65,54 @@ func TestIndexReconcilesStageMismatch(t *testing.T) {
 	}
 	if len(res.Reconciled) != 0 {
 		t.Errorf("second Reconciled = %+v, want none", res.Reconciled)
+	}
+}
+
+// TestIndexLeavesRootPlacementAlone (S-05): a root project stays
+// flagged as a stage mismatch — index must not fake a channel for it
+// or report a no-op reconcile forever.
+func TestIndexLeavesRootPlacementAlone(t *testing.T) {
+	a := openTestApp(t)
+	solo := filepath.Join(a.Config.Workspace.Root, "rootsolo")
+	if err := os.MkdirAll(solo, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(solo, "go.mod"), []byte("module x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Registry.Upsert(registry.Project{
+		ID: "root-1", Name: "rootsolo", Slug: "rootsolo", Path: solo,
+		Channel: registry.RootChannel, FlowStage: "source",
+		CreatedAt: time.Now(), OnDisk: true, Registered: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := a.Index()
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	if len(res.Reconciled) != 0 {
+		t.Errorf("Reconciled = %+v, want none for root placement", res.Reconciled)
+	}
+	st, err := a.Registry.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := false
+	for _, p := range st.StageMismatch {
+		if p.Slug == "rootsolo" {
+			flagged = true
+		}
+	}
+	if !flagged {
+		t.Errorf("root project must stay flagged: %+v", st.StageMismatch)
+	}
+	got, err := a.Registry.Find("rootsolo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Channel != registry.RootChannel {
+		t.Errorf("channel was rewritten to %q", got.Channel)
 	}
 }

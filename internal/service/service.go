@@ -123,6 +123,7 @@ func (a *App) ScanContext(ctx context.Context, progress func(dirs int)) (ScanRes
 		return ScanResult{}, e
 	}
 	s := scanner.New(a.Config.Scanner.Ignore, a.Config.Scanner.MaxDepth)
+	s.FollowSymlinks = a.Config.Scanner.FollowSymlinks
 	var all []registry.Project
 	var warnings []string
 	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
@@ -169,6 +170,11 @@ func (a *App) Index() (IndexResult, error) {
 	}
 	out := IndexResult{Scan: scanRes}
 	for _, p := range st.StageMismatch {
+		if p.Channel == registry.RootChannel {
+			// Root placement needs a real move (rivu flow), not a
+			// reconcile — never fake a channel (S-05).
+			continue
+		}
 		from := p.FlowStage
 		to := registry.FlowForChannel(p.Channel)
 		if err := a.Registry.UpdatePathFlow(p.ID, p.Path, p.Channel, to); err != nil {

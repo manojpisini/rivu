@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -487,5 +488,120 @@ func TestNodeEcosystemDetection(t *testing.T) {
 				t.Errorf("stack = %v, want %q leading", stack, tc.front)
 			}
 		})
+	}
+}
+
+// TestRootLevelProjectChannel (S-05): a project directly under the
+// workspace root is marked (root) instead of a fake 00_Source channel,
+// and still defaults to the source Flow stage.
+func TestRootLevelProjectChannel(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{
+		filepath.Join(root, "solo"),
+		filepath.Join(root, "00_Source", "channeled"),
+	} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("projects = %d, want 2", len(got))
+	}
+	byName := map[string]registry.Project{}
+	for _, p := range got {
+		byName[p.Name] = p
+	}
+	solo := byName["solo"]
+	if solo.Channel != registry.RootChannel || solo.FlowStage != "source" {
+		t.Errorf("root project channel=%q stage=%q, want %q/source", solo.Channel, solo.FlowStage, registry.RootChannel)
+	}
+	if ch := byName["channeled"]; ch.Channel != "00_Source" {
+		t.Errorf("channel project channel = %q, want 00_Source", ch.Channel)
+	}
+}
+
+// TestIgnoreCaseFolding (S-10): ignore names fold case on
+// case-insensitive filesystems (Windows, macOS) and stay exact on
+// case-sensitive ones (Linux).
+func TestIgnoreCaseFolding(t *testing.T) {
+	root := t.TempDir()
+	d := filepath.Join(root, "scratch")
+	if err := os.MkdirAll(d, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := New([]string{"SCRATCH"}, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 1
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		want = 0
+	}
+	if len(got) != want {
+		t.Errorf("projects = %d, want %d (GOOS=%s, fold=%v)", len(got), want, runtime.GOOS,
+			runtime.GOOS == "windows" || runtime.GOOS == "darwin")
+	}
+}
+
+// TestSymlinkPolicy (S-07): symlinked projects are ignored by default,
+// scanned when FollowSymlinks is on, and each target is taken exactly
+// once (the loop/dedupe guard).
+func TestSymlinkPolicy(t *testing.T) {
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "go.mod"), []byte("module linked"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	linkDir := filepath.Join(root, "00_Source")
+	if err := os.MkdirAll(linkDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	links := []string{filepath.Join(linkDir, "linked"), filepath.Join(linkDir, "linked-dup")}
+	for _, l := range links {
+		if err := os.Symlink(target, l); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("default must ignore symlinked projects, got %d", len(got))
+	}
+
+	s := New(nil, 6)
+	s.FollowSymlinks = true
+	got, _, err = s.Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "linked" {
+		t.Fatalf("follow: projects = %+v, want one 'linked'", got)
+	}
+
+	// A loop (link back to the workspace root) must not hang, spin, or
+	// invent a project out of the root itself.
+	loop := filepath.Join(linkDir, "loop")
+	if err := os.Symlink(root, loop); err != nil {
+		t.Skipf("symlink for loop guard: %v", err)
+	}
+	got, _, err = s.Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Errorf("loop guard: projects = %+v, want the same single project", got)
 	}
 }

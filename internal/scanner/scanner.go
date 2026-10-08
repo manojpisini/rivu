@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -18,16 +20,32 @@ import (
 )
 
 type Scanner struct {
-	Ignore   map[string]bool
-	MaxDepth int
+	Ignore         map[string]bool
+	MaxDepth       int
+	FollowSymlinks bool
+	// fold lowercases Ignore lookups on case-insensitive filesystems
+	// (Windows, macOS) so "Build" also skips "build" (S-10).
+	fold bool
 }
 
 func New(ignore []string, max int) *Scanner {
+	fold := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	m := map[string]bool{}
 	for _, v := range ignore {
-		m[v] = true
+		if fold {
+			m[strings.ToLower(v)] = true
+		} else {
+			m[v] = true
+		}
 	}
-	return &Scanner{m, max}
+	return &Scanner{Ignore: m, MaxDepth: max, fold: fold}
+}
+
+func (s *Scanner) ignoresName(name string) bool {
+	if s.fold {
+		return s.Ignore[strings.ToLower(name)]
+	}
+	return s.Ignore[name]
 }
 func exists(p string) bool { _, e := os.Stat(p); return e == nil }
 
@@ -269,6 +287,7 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 		return nil, nil, fmt.Errorf("workspace root %s is not a directory", root)
 	}
 	ignorePatterns := loadIgnorePatterns(root)
+	visited := map[string]bool{}
 	dirs := 0
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if cerr := ctx.Err(); cerr != nil {
@@ -295,7 +314,7 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 			// ignore names, workspace .rivuignore patterns, over depth.
 			if (strings.HasPrefix(name, ".") && name != ".metadata") ||
 				isJunk(name) ||
-				s.Ignore[name] ||
+				s.ignoresName(name) ||
 				ignored(ignorePatterns, rel) ||
 				depth > s.MaxDepth {
 				return filepath.SkipDir
@@ -307,7 +326,7 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 			}
 			lang, stack, score, strong := classify(path)
 			if score >= threshold {
-				channel := "00_Source"
+				channel := registry.RootChannel
 				parts := strings.Split(rel, string(os.PathSeparator))
 				if len(parts) > 1 {
 					channel = parts[0]
@@ -323,6 +342,57 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 				}
 				return filepath.SkipDir
 			}
+		}
+		// S-07: symlinked project directories are only visited when
+		// scanner.follow_symlinks is on. The target is classified but
+		// never descended into, and visited real paths are recorded
+		// once — that is the loop guard and the dedupe in one rule.
+		// ponytail: nested projects behind a symlink stay invisible;
+		// walk the resolved tree too if users need that.
+		if s.FollowSymlinks && d.Type()&fs.ModeSymlink != 0 {
+			target, errEval := filepath.EvalSymlinks(path)
+			if errEval != nil {
+				return nil // broken link: skipped silently
+			}
+			if visited[target] {
+				return nil
+			}
+			visited[target] = true
+			if st, errStat := os.Stat(target); errStat != nil || !st.IsDir() {
+				return nil
+			}
+			if depth > s.MaxDepth {
+				return nil
+			}
+			name := d.Name()
+			if (strings.HasPrefix(name, ".") && name != ".metadata") ||
+				isJunk(name) ||
+				s.ignoresName(name) ||
+				ignored(ignorePatterns, rel) {
+				return nil
+			}
+			sl, errSlug := slug.Make(name)
+			if errSlug != nil {
+				return nil
+			}
+			lang, stack, score, strong := classify(path)
+			if score >= threshold {
+				channel := registry.RootChannel
+				parts := strings.Split(rel, string(os.PathSeparator))
+				if len(parts) > 1 {
+					channel = parts[0]
+				}
+				id := bankID(path)
+				if id == "" {
+					id = uuid.NewString()
+				}
+				now := time.Now()
+				out = append(out, registry.Project{ID: id, Name: name, Slug: sl, Path: path, Root: root, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
+				if !strong {
+					warnings = append(warnings, fmt.Errorf("unconfirmed: %s reached the score threshold on weak markers only (README, src/, build file)", rel))
+				}
+			}
+			return nil
 		}
 		return nil
 	})

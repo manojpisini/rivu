@@ -32,8 +32,9 @@ type Config struct {
 		SourceSLADays      int `toml:"source_sla_days"`
 	} `toml:"flow"`
 	Scanner struct {
-		Ignore   []string `toml:"ignore"`
-		MaxDepth int      `toml:"max_depth"`
+		Ignore         []string `toml:"ignore"`
+		MaxDepth       int      `toml:"max_depth"`
+		FollowSymlinks bool     `toml:"follow_symlinks"`
 	} `toml:"scanner"`
 	Health struct {
 		Weights map[string]int `toml:"weights"`

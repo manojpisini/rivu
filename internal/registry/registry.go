@@ -333,6 +333,11 @@ func ChannelForFlow(flow string) string {
 	return "00_Source"
 }
 
+// RootChannel marks a project sitting directly under the workspace
+// root with no real Channel folder (S-05). States reports it as a
+// stage mismatch so placement gets fixed with a move, never assumed.
+const RootChannel = "(root)"
+
 // FlowForChannel maps a workspace channel folder to its default Flow stage.
 func FlowForChannel(c string) string {
 	switch c {
@@ -369,7 +374,7 @@ func (r *Registry) States() (States, error) {
 			s.Missing = append(s.Missing, p)
 		case !p.Registered:
 			s.Unregistered = append(s.Unregistered, p)
-		case FlowForChannel(p.Channel) != p.FlowStage:
+		case FlowForChannel(p.Channel) != p.FlowStage || p.Channel == RootChannel:
 			s.StageMismatch = append(s.StageMismatch, p)
 		}
 	}

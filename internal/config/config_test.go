@@ -270,6 +270,7 @@ func TestRoundTripAllFields(t *testing.T) {
 	c.Flow.SourceSLADays = 7
 	c.Scanner.Ignore = []string{"tmp"}
 	c.Scanner.MaxDepth = 3
+	c.Scanner.FollowSymlinks = true
 	c.Health.Weights = map[string]int{"readme": 25, "git": 25, "bank": 25, "map": 25}
 	c.Git.DefaultBranch = "trunk"
 	c.Bridge.Enabled = true
@@ -299,6 +300,7 @@ func TestRoundTripAllFields(t *testing.T) {
 		got.Flow.SourceSLADays != 7 ||
 		got.Scanner.MaxDepth != 3 ||
 		len(got.Scanner.Ignore) != 1 || got.Scanner.Ignore[0] != "tmp" ||
+		got.Scanner.FollowSymlinks != true ||
 		got.Health.Weights["readme"] != 25 ||
 		got.Git.DefaultBranch != "trunk" ||
 		got.Bridge.Enabled != true ||
