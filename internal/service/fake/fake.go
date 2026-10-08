@@ -37,6 +37,14 @@ type Service struct {
 	OpenErr       error
 	CurrentP      registry.Project
 	HasCurrent    bool
+	ConflRes      []registry.Confluence
+	ConflErr      error
+	ConflShowRes  registry.Confluence
+	ConflMembers  []registry.Project
+	ConflNewRes   registry.Confluence
+	ConflRename   string
+	ConflRemove   bool
+	ConflNames    []string
 
 	mu    sync.Mutex
 	calls []string
@@ -177,4 +185,52 @@ func (f *Service) OpenCommand(q, editor string) ([]string, error) {
 
 func (f *Service) Current() (registry.Project, bool) {
 	return f.CurrentP, f.HasCurrent
+}
+
+// Confluences serves the canned browser list (P5.04) and records the
+// read so tests can assert which screen loaded.
+func (f *Service) Confluences() ([]registry.Confluence, error) {
+	f.record("Confluences")
+	return f.ConflRes, f.ConflErr
+}
+
+func (f *Service) ConfluenceShow(q string) (registry.Confluence, []registry.Project, error) {
+	f.record("ConfluenceShow " + q)
+	return f.ConflShowRes, f.ConflMembers, f.ConflErr
+}
+
+func (f *Service) ConfluenceNew(name, notes string) (registry.Confluence, error) {
+	f.record("ConfluenceNew " + name)
+	if f.ConflErr != nil {
+		return registry.Confluence{}, f.ConflErr
+	}
+	return f.ConflNewRes, nil
+}
+
+func (f *Service) ConfluenceRename(q, newName string) (string, error) {
+	f.record("ConfluenceRename " + q + " -> " + newName)
+	if f.ConflErr != nil {
+		return "", f.ConflErr
+	}
+	return f.ConflRename, nil
+}
+
+func (f *Service) ConfluenceDelete(q string) error {
+	f.record("ConfluenceDelete " + q)
+	return f.ConflErr
+}
+
+func (f *Service) ConfluenceAdd(project, confluence string) error {
+	f.record("ConfluenceAdd " + project + " " + confluence)
+	return f.ConflErr
+}
+
+func (f *Service) ConfluenceRemove(project, confluence string) (bool, error) {
+	f.record("ConfluenceRemove " + project + " " + confluence)
+	return f.ConflRemove, f.ConflErr
+}
+
+func (f *Service) ProjectConfluences(q string) ([]string, error) {
+	f.record("ProjectConfluences " + q)
+	return f.ConflNames, f.ConflErr
 }

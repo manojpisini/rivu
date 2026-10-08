@@ -1,0 +1,10 @@
+CONFLUENCES
+1/2
+> heap-stack  2 projects  alpha, beta
+  devtools  1 project  gamma
+
+MEMBERS - heap-stack
+  Alpha  source  go
+  Beta  active  rust
+
+[tab] switch  [n] new  [r] rename  [x] remove  [e] membership  [enter] open  [esc] back

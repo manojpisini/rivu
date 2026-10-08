@@ -52,6 +52,14 @@ type Service interface {
 	OpenProject(q, editor string) error
 	OpenCommand(q, editor string) ([]string, error)
 	Current() (registry.Project, bool)
+	Confluences() ([]registry.Confluence, error)
+	ConfluenceShow(q string) (registry.Confluence, []registry.Project, error)
+	ConfluenceNew(name, notes string) (registry.Confluence, error)
+	ConfluenceRename(q, newName string) (string, error)
+	ConfluenceDelete(q string) error
+	ConfluenceAdd(project, confluence string) error
+	ConfluenceRemove(project, confluence string) (bool, error)
+	ProjectConfluences(q string) ([]string, error)
 }
 
 var _ Service = (*App)(nil)

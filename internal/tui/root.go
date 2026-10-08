@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -125,6 +126,14 @@ type Root struct {
 	statsCompact bool               // hide language/flow sections (P4.20)
 	statsExport  bool               // export format picker open (P4.20)
 	statsExportC int                // 0 = csv, 1 = json
+	conflRows    []confluenceRow    // browser payload (P5.04)
+	conflCursor  int                // selected confluence
+	conflMember  int                // selected member row
+	conflFocus   int                // 0 = confluence list, 1 = members
+	conflEdit    *membershipOverlay // browser membership overlay (P5.04)
+	conflTI      textinput.Model    // new/rename prompt input
+	conflTIMode  string             // "", "new" or "rename"
+	conflTIQ     string             // rename target (confluence id)
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -392,6 +401,60 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.statsDaily = x.daily
 		r.screen = ScreenStats
 		return r, nil
+	case confluencesMsg:
+		// Intercepted like dashMsg: the load is fired from the dashboard
+		// and the payload switches (or refreshes) the browser screen.
+		r.dashboard.Status = ""
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not load confluences: " + x.err.Error()})
+		}
+		r.conflRows = x.rows
+		r.conflCursor = min(r.conflCursor, max(0, len(x.rows)-1))
+		r.conflMember = 0
+		r.screen = ScreenConfluence
+		return r, nil
+	case conflMutatedMsg:
+		r.dashboard.Status = ""
+		var mutCmds []tea.Cmd
+		if x.err != nil {
+			nm, _ := r.pushToast(Toast{Level: "bad", Text: x.err.Error()})
+			r = nm.(Root)
+		} else if x.ok != "" {
+			nm, tick := r.pushToast(Toast{Level: "good", Text: x.ok})
+			r = nm.(Root)
+			mutCmds = append(mutCmds, tick)
+		}
+		if r.screen == ScreenConfluence {
+			mutCmds = append(mutCmds, confluencesCmd(r.svc))
+		}
+		return r, tea.Batch(mutCmds...)
+	case conflEditMsg:
+		if x.err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "could not edit membership: " + x.err.Error()})
+		}
+		ov := x.ov
+		if r.screen == ScreenConfluence {
+			r.conflEdit = &ov
+		} else {
+			r.dashboard.conflEdit = &ov
+		}
+		return r, nil
+	case membershipAppliedMsg:
+		r.conflEdit = nil
+		r.dashboard.conflEdit = nil
+		var appCmds []tea.Cmd
+		if x.err != nil {
+			nm, _ := r.pushToast(Toast{Level: "bad", Text: "membership changed, but some links failed: " + x.err.Error()})
+			r = nm.(Root)
+		} else {
+			nm, tick := r.pushToast(Toast{Level: "good", Text: "membership updated"})
+			r = nm.(Root)
+			appCmds = append(appCmds, tick)
+		}
+		if r.screen == ScreenConfluence {
+			appCmds = append(appCmds, confluencesCmd(r.svc))
+		}
+		return r, tea.Batch(appCmds...)
 	case exportDoneMsg:
 		if x.err != nil {
 			return r.pushToast(Toast{Level: "bad", Text: "export failed: " + x.err.Error()})
@@ -435,6 +498,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if r.screen == ScreenSource {
 			return r.updateSource(x)
+		}
+		if r.screen == ScreenConfluence {
+			return r.confluenceKeys(x)
 		}
 		if r.screen != ScreenDashboard {
 			// Sub-screens: esc/q go back, ctrl+c quits, everything else
@@ -644,6 +710,8 @@ func (r Root) render() string {
 		body = r.masterView()
 	case ScreenStats:
 		body = r.statsView()
+	case ScreenConfluence:
+		body = r.confluenceView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))
@@ -656,6 +724,13 @@ func (r Root) render() string {
 	}
 	if n := len(r.confirms); n > 0 {
 		box := r.confirmView(r.confirms[n-1])
+		if r.width > 0 && r.height > 0 {
+			return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
+		}
+		return box
+	}
+	if r.screen == ScreenConfluence && r.conflEdit != nil {
+		box := r.conflEdit.view(r.width)
 		if r.width > 0 && r.height > 0 {
 			return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
 		}

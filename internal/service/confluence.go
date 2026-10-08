@@ -102,6 +102,16 @@ func (a *App) ConfluenceDelete(q string) error {
 	return nil
 }
 
+// ProjectConfluences lists the confluence names a project belongs to,
+// by query (slug or name); the Detail membership editor reads this.
+func (a *App) ProjectConfluences(q string) ([]string, error) {
+	p, err := a.Registry.Resolve(q)
+	if err != nil {
+		return nil, err
+	}
+	return a.Registry.ProjectConfluences(p.ID)
+}
+
 // ConfluenceAdd links a project to an existing confluence and mirrors
 // the membership into the project's Bank. Unlike Source's --confluence
 // flag, the confluence must already exist here so a typo cannot

@@ -137,6 +137,16 @@ func TestGoldenPhase4Screens(t *testing.T) {
 			}})
 			return r
 		}},
+		{"confluence", func(t *testing.T) Root {
+			r := sized(t)
+			r, _ = upd(t, r, confluencesMsg{rows: []confluenceRow{
+				{c: registry.Confluence{ID: "c1", Name: "heap-stack", Members: 2},
+					members: []registry.Project{goldenProjects()[0], goldenProjects()[1]}},
+				{c: registry.Confluence{ID: "c2", Name: "devtools", Members: 1},
+					members: []registry.Project{goldenProjects()[2]}},
+			}})
+			return r
+		}},
 		{"actions-menu", func(t *testing.T) Root {
 			r := sized(t)
 			r, _ = upd(t, r, runeKey("x"))

@@ -77,7 +77,8 @@ type Model struct {
 	actionMenu     bool
 	actionCursor   int
 	helpOpen       bool
-	searchGen      int // debounces the filter while typing (P3.36)
+	searchGen      int                // debounces the filter while typing (P3.36)
+	conflEdit      *membershipOverlay // Detail `c` membership overlay (P5.04)
 }
 
 func New(ps []registry.Project, workspaceRoot string) Model {
@@ -174,6 +175,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.Status = ""
 			}
 			return m, nil
+		}
+
+		// The membership overlay owns the keyboard until enter/esc (P5.04).
+		if m.conflEdit != nil {
+			cmd := m.conflEdit.key(x)
+			if m.conflEdit.closed {
+				m.conflEdit = nil
+			}
+			return m, cmd
 		}
 
 		// Full-screen detail: esc/q/d go back, ctrl+c still quits.
@@ -345,6 +355,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Loading stats…"
 			return m, statsCmd(m.svc)
+		case key.Matches(x, keys.Confluence):
+			if m.svc == nil {
+				m.Status = "Confluences unavailable: no service in this session"
+				return m, nil
+			}
+			if m.DetailFull {
+				// Spec 3.4: [c] on Detail edits this project's membership.
+				p, ok := m.selectedProject()
+				if !ok {
+					m.Status = "Select a project to see its confluences"
+					return m, nil
+				}
+				return m, conflEditForProjectCmd(m.svc, p.Slug)
+			}
+			m.Status = "Loading confluences…"
+			return m, confluencesCmd(m.svc)
 		case key.Matches(x, keys.Map):
 			if m.svc == nil {
 				m.Status = "Agent map unavailable: no service in this session"
@@ -1247,6 +1273,9 @@ func (m Model) View() string {
 	if m.Width < 60 || m.Height < 15 {
 		return tooSmall(m.Width, m.Height)
 	}
+	if m.conflEdit != nil {
+		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, m.conflEdit.view(m.Width))
+	}
 	if m.helpOpen {
 		return m.helpView()
 	}
@@ -1618,6 +1647,7 @@ func (m Model) detailFullView() string {
 	p, _ := m.selectedProject()
 	body := m.detailBody(p, min(m.Width-8, 76))
 	actions := mutedStyle.Render("[enter] open  [h] doctor  [a] map report  [r] rescan  [d/esc] back")
+	actions += "\n" + mutedStyle.Render("[c] confluences")
 	box := panelStyle.Render(body + "\n" + actions)
 	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
 }
