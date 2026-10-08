@@ -147,6 +147,9 @@ type Root struct {
 	logsAct      []registry.Activity
 	logsLoaded   bool
 	logsErr      string
+	palOn        bool            // command palette overlay open (P5.12)
+	palTI        textinput.Model // palette query line
+	palCursor    int             // highlighted match
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -168,6 +171,7 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 		cfg:        cfg,
 		theme:      theme,
 		dashboard:  New(nil, cfg.Workspace.Root),
+		palTI:      newPaletteInput(theme),
 		styleTitle: lipgloss.NewStyle().Bold(true).Foreground(theme.Accent),
 		styleConfirm: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -532,6 +536,15 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return r, nil // the overlay swallows every other key
 		}
+		// The command palette (spec 3.9 `:`) owns the keyboard while
+		// open and opens globally — except where a text input is
+		// already typing (search, Source wizard, Settings field...).
+		if r.palOn {
+			return r.paletteKeys(x)
+		}
+		if paletteBinds(x) && r.paletteCanOpen() {
+			return r.openPalette()
+		}
 		// "e" expands sticky errors, but never steals a typed search.
 		// Errors win over the Stats screen's export key so the banner's
 		// [e expand] hint is never a lie; clear them, then e exports.
@@ -794,6 +807,13 @@ func (r Root) render() string {
 	}
 	if r.errExpand {
 		box := r.errExpandView()
+		if r.width > 0 && r.height > 0 {
+			return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
+		}
+		return box
+	}
+	if r.palOn {
+		box := r.paletteView()
 		if r.width > 0 && r.height > 0 {
 			return lipgloss.Place(r.width, r.height, lipgloss.Center, lipgloss.Center, box)
 		}

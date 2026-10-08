@@ -877,12 +877,16 @@ func bulkFlowApplyCmd(svc service.Service, slugs []string, stage string) tea.Cmd
 	}
 }
 
-// flowPickConfirm closes the picker and either explains why no move can
-// happen or asks the service for the dry-run Plan. With a multi-select
-// set (P4.08) the picked projects win over the cursor row.
+// flowPickConfirm closes the picker and plans the highlighted stage.
 func (m Model) flowPickConfirm() (tea.Model, tea.Cmd) {
 	stage := flowOrder[m.flowPickCursor+1]
 	m.flowPick = false
+	return m.flowToStage(stage)
+}
+
+// flowToStage plans the move to stage for the picked set or the cursor
+// row — the picker (enter) and the command palette share it (P5.12).
+func (m Model) flowToStage(stage string) (tea.Model, tea.Cmd) {
 	if len(m.Picked) > 0 {
 		var qs []string
 		for _, p := range m.Projects {
