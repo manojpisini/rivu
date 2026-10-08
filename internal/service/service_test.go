@@ -769,7 +769,8 @@ func TestScanContextCancelledBeforeCommit(t *testing.T) {
 }
 
 // TestDoctorAttachesSnapshotTrend: health_snapshots rows ride along on
-// the Doctor report for the sparkline (P4.14), oldest first.
+// the Doctor report for the sparkline (P4.14), oldest first — including
+// the fresh point the same run just wrote (P5.05).
 func TestDoctorAttachesSnapshotTrend(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RIVU_HOME", home)
@@ -799,7 +800,54 @@ func TestDoctorAttachesSnapshotTrend(t *testing.T) {
 	if len(rs) != 1 {
 		t.Fatalf("reports = %d, want 1", len(rs))
 	}
-	if len(rs[0].Trend) != 2 || rs[0].Trend[0] != 55 || rs[0].Trend[1] != 60 {
-		t.Errorf("Trend = %v, want [55 60] oldest first", rs[0].Trend)
+	if len(rs[0].Trend) != 3 || rs[0].Trend[0] != 55 || rs[0].Trend[1] != 60 || rs[0].Trend[2] != rs[0].Score {
+		t.Errorf("Trend = %v, want [55 60 %d] oldest first", rs[0].Trend, rs[0].Score)
+	}
+}
+
+// TestDoctorWritesSnapshotAndDedupes: each run persists today's score
+// into health_snapshots; a second run the same day with an unchanged
+// score adds no row (P5.05).
+func TestDoctorWritesSnapshotAndDedupes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	p := registry.Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(home, "alpha"), FlowStage: "source"}
+	if err := a.Registry.Upsert(p); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	rs, err := a.Doctor("alpha")
+	if err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	if len(rs) != 1 {
+		t.Fatalf("reports = %d, want 1", len(rs))
+	}
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := a.Registry.DB.QueryRow(`SELECT count(*) FROM health_snapshots WHERE project_id='p1'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("snapshots after first run = %d, want 1", n)
+	}
+	if len(rs[0].Trend) != 1 || rs[0].Trend[0] != rs[0].Score {
+		t.Errorf("Trend = %v, want the fresh score %d", rs[0].Trend, rs[0].Score)
+	}
+	if _, err := a.Doctor("alpha"); err != nil {
+		t.Fatalf("second Doctor: %v", err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("snapshots after same-day rerun = %d, want 1 (deduped)", n)
 	}
 }

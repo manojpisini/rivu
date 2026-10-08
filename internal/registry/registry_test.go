@@ -923,6 +923,57 @@ func TestHealthSnapshotsOldestFirstWithLimit(t *testing.T) {
 	}
 }
 
+// TestAddSnapshotDedupesSameDayAndScore: repeat writes on the same
+// calendar day with the same score are no-ops; a score change, a new
+// day or a different project each adds a row; unknown projects fail
+// the FK check (P5.05).
+func TestAddSnapshotDedupesSameDayAndScore(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	for _, p := range []Project{
+		{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(t.TempDir(), "alpha"), FlowStage: "source"},
+		{ID: "p2", Name: "Beta", Slug: "beta", Path: filepath.Join(t.TempDir(), "beta"), FlowStage: "source"},
+	} {
+		if err := r.Upsert(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day1 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	steps := []struct {
+		name  string
+		pid   string
+		score int
+		at    time.Time
+		want  int
+	}{
+		{"first write", "p1", 80, day1.Add(9 * time.Hour), 1},
+		{"same day same score", "p1", 80, day1.Add(12 * time.Hour), 1},
+		{"same day new score", "p1", 75, day1.Add(15 * time.Hour), 2},
+		{"same score next day", "p1", 80, day1.AddDate(0, 0, 1), 3},
+		{"other project same day score", "p2", 80, day1.Add(9 * time.Hour), 1},
+	}
+	for _, s := range steps {
+		t.Run(s.name, func(t *testing.T) {
+			if err := r.AddSnapshot(s.pid, s.score, s.at); err != nil {
+				t.Fatalf("AddSnapshot: %v", err)
+			}
+			got, err := r.HealthSnapshots(s.pid, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != s.want {
+				t.Fatalf("rows for %s = %d, want %d", s.pid, len(got), s.want)
+			}
+		})
+	}
+	if err := r.AddSnapshot("missing", 80, day1); err == nil {
+		t.Fatal("unknown project accepted, want FK error")
+	}
+}
+
 // TestActivityDailyBucketsByCivilDay: one slot per day, zero-filled,
 // oldest first; events outside the window are dropped (P4.19).
 func TestActivityDailyBucketsByCivilDay(t *testing.T) {

@@ -425,6 +425,27 @@ func (r *Registry) HealthSnapshots(projectID string, limit int) ([]Snapshot, err
 	return out, nil
 }
 
+// AddSnapshot records one health score at takenAt, deduplicated: a
+// project that already has that score on the same calendar day is a
+// no-op, while a score change, a new day or another project adds a
+// row (P5.05).
+func (r *Registry) AddSnapshot(projectID string, score int, takenAt time.Time) error {
+	day := time.Date(takenAt.Year(), takenAt.Month(), takenAt.Day(), 0, 0, 0, 0, takenAt.Location())
+	var dup int
+	err := r.DB.QueryRow(`SELECT count(*) FROM health_snapshots
+		WHERE project_id=? AND score=? AND taken_at>=? AND taken_at<?`,
+		projectID, score, day, day.AddDate(0, 0, 1)).Scan(&dup)
+	if err != nil {
+		return err
+	}
+	if dup > 0 {
+		return nil
+	}
+	_, err = r.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES(?,?,?,?)`,
+		uuid.NewString(), projectID, score, takenAt)
+	return err
+}
+
 // ApplyFlow records a completed Flow move in one transaction: path,
 // channel, stage, asset flags and the activity log (P1.43).
 func (r *Registry) ApplyFlow(id, path, channel, flow string, hasBank, hasMap bool) error {

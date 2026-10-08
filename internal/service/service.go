@@ -594,6 +594,11 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 	for _, p := range ps {
 		r := doctor.Run(p, a.Config.Bridge.ScaffoldMark)
 		_ = a.Registry.SetHealth(p.ID, r.Score)
+		// The run's score joins the history before the trend is read;
+		// same-day repeats dedupe so the sparkline does not stack
+		// identical points (P5.05). A missing snapshot must not fail
+		// the health run itself.
+		_ = a.Registry.AddSnapshot(p.ID, r.Score, time.Now())
 		// A missing trend must not fail the health run itself (P4.14).
 		if snaps, e := a.Registry.HealthSnapshots(p.ID, 30); e == nil {
 			for _, s := range snaps {
