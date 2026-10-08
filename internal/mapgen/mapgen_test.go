@@ -303,3 +303,53 @@ func TestContentRanksAndExtracts(t *testing.T) {
 		prev = i
 	}
 }
+
+// TestSecretsListedByNameOnly (M-03): secret files are named under
+// "Do not read / never commit", dropped from Important files, and
+// their contents never reach the map (spec 4.4 rule 6).
+func TestSecretsListedByNameOnly(t *testing.T) {
+	root := t.TempDir()
+	secrets := map[string]string{
+		".env":         "API_TOKEN=supersecret\n",
+		".env.local":   "OTHER=1\n",
+		"server.pem":   "-----BEGIN CERT-----\n",
+		"id_rsa":       "PRIVATE KEY MATERIAL\n",
+		"api.key":      "k=1\n",
+		"secrets.json": `{"pw":"hunter2"}`,
+	}
+	for name, body := range secrets {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("fine\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, body := Content(registry.Project{Name: "P", Slug: "p", Path: root}, nil)
+
+	sec := section(t, body, "## Do not read / never commit")
+	for name := range secrets {
+		if !strings.Contains(sec, "`"+name+"`") {
+			t.Errorf("section missing %s:\n%s", name, sec)
+		}
+	}
+	for _, pat := range []string{".env*", "*.pem", "id_rsa*", "*.key", "secrets.*"} {
+		if !strings.Contains(sec, pat) {
+			t.Errorf("section missing pattern %s:\n%s", pat, sec)
+		}
+	}
+	files := section(t, body, "## Important files")
+	for name := range secrets {
+		if strings.Contains(files, "`"+name+"`") {
+			t.Errorf("secret %s still listed as important reading:\n%s", name, files)
+		}
+	}
+	if !strings.Contains(files, "`notes.md`") {
+		t.Errorf("normal file missing:\n%s", files)
+	}
+	for _, leak := range []string{"supersecret", "hunter2", "PRIVATE KEY", "BEGIN CERT"} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("map inlined secret contents: %q", leak)
+		}
+	}
+}
