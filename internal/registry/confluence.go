@@ -55,8 +55,15 @@ func (r *Registry) CreateConfluence(name, notes string) (Confluence, error) {
 }
 
 // Confluence finds one confluence by name or id with its member count.
+// The name side is slug-normalised first, so callers may pass a display
+// name ("Heap & Stack") as happily as the stored slug; ids pass through
+// unchanged (uuids are already slug-shaped).
 func (r *Registry) Confluence(q string) (Confluence, error) {
-	row := r.DB.QueryRow(`SELECT `+confluenceCols+`,(SELECT count(*) FROM project_confluences pc WHERE pc.confluence_id=c.id) FROM confluences c WHERE c.name=? OR c.id=?`, q, q)
+	byName := q
+	if n, err := normalizeConfluenceName(q); err == nil {
+		byName = n
+	}
+	row := r.DB.QueryRow(`SELECT `+confluenceCols+`,(SELECT count(*) FROM project_confluences pc WHERE pc.confluence_id=c.id) FROM confluences c WHERE c.name=? OR c.id=?`, byName, q)
 	var c Confluence
 	if err := row.Scan(&c.ID, &c.Name, &c.Notes, &c.Members); err != nil {
 		return Confluence{}, confluenceLookupErr(q, err)
@@ -170,7 +177,11 @@ func (r *Registry) ProjectConfluences(projectID string) ([]string, error) {
 // confluence identified by name or id. An unknown confluence matches
 // nothing: filters narrow a list, they do not fail it.
 func (r *Registry) ConfluenceProjectIDs(q string) ([]string, error) {
-	rows, err := r.DB.Query(`SELECT pc.project_id FROM project_confluences pc JOIN confluences c ON c.id=pc.confluence_id WHERE c.name=? OR c.id=?`, q, q)
+	byName := q
+	if n, err := normalizeConfluenceName(q); err == nil {
+		byName = n
+	}
+	rows, err := r.DB.Query(`SELECT pc.project_id FROM project_confluences pc JOIN confluences c ON c.id=pc.confluence_id WHERE c.name=? OR c.id=?`, byName, q)
 	if err != nil {
 		return nil, err
 	}

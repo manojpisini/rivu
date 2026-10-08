@@ -103,6 +103,60 @@ func TestSyncRewritesStageAndPreservesExtras(t *testing.T) {
 	}
 }
 
+// TestSetConfluences (P5.03): only the confluences array changes —
+// other rivu fields, hand edits and unknown tables pass through, and
+// an empty list clears rather than nils.
+func TestSetConfluences(t *testing.T) {
+	p := registry.Project{ID: "1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "source", Channel: "00_Source"}
+	seed := "[rivu]\nid = \"1\"\nname = \"Demo\"\nslug = \"demo\"\nflow_stage = \"source\"\nchannel = \"00_Source\"\nconfluences = [\"old\"]\ngit_init_owner = \"me\"\ncreated_at = \"2024-05-06T07:08:09Z\"\n\n[user]\nnotes = \"keep me\"\n"
+	if err := os.MkdirAll(filepath.Join(p.Path, ".metadata"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Path, ".metadata", "project.toml"), []byte(seed), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetConfluences(p, []string{"heap-stack", "devtools"}); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]map[string]any
+	b, err := os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := toml.Decode(string(b), &doc); err != nil {
+		t.Fatalf("rewritten file must parse: %v", err)
+	}
+	rivu := doc["rivu"]
+	if got := fmt.Sprint(rivu["confluences"]); got != "[heap-stack devtools]" {
+		t.Errorf("confluences = %v, want the registry list", got)
+	}
+	if rivu["git_init_owner"] != "me" || rivu["created_at"] != "2024-05-06T07:08:09Z" {
+		t.Errorf("other rivu fields changed: %v", rivu)
+	}
+	if doc["user"]["notes"] != "keep me" {
+		t.Errorf("unknown [user] table lost: %v", doc["user"])
+	}
+
+	// Empty clears the array, it never becomes nil.
+	if err := SetConfluences(p, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(filepath.Join(p.Path, ".metadata", "project.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := toml.Decode(string(b), &doc); err != nil {
+		t.Fatalf("cleared file must parse: %v", err)
+	}
+	if got := fmt.Sprint(doc["rivu"]["confluences"]); got != "[]" {
+		t.Errorf("confluences after clear = %v, want []", got)
+	}
+	if doc["user"]["notes"] != "keep me" {
+		t.Errorf("unknown [user] table lost on clear: %v", doc["user"])
+	}
+}
+
 func TestSyncGolden(t *testing.T) {
 	created := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
 	p := registry.Project{ID: "id-1", Name: "Demo", Slug: "demo", Path: t.TempDir(), FlowStage: "active", Channel: "01_Active", CreatedAt: created}

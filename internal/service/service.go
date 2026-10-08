@@ -366,6 +366,13 @@ func (a *App) Source(name string, o SourceOpts) (SourceResult, error) {
 			warnings = append(warnings, fmt.Sprintf("could not attach confluence %q: %v", c, e))
 		}
 	}
+	if len(o.Confluence) > 0 {
+		// The Bank got the raw flag names; the registry has slugs —
+		// registry is truth, so the mirror wins (P5.03).
+		if e := a.mirrorConfluences(p); e != nil {
+			warnings = append(warnings, fmt.Sprintf("could not mirror confluences to project.toml: %v", e))
+		}
+	}
 	_ = a.Registry.SetCurrent(p.ID)
 	_ = a.Registry.LogActivity(p.ID, "sourced")
 	return SourceResult{Project: p, Plan: plan, Warnings: warnings}, nil

@@ -43,7 +43,7 @@ func TestSourceClassificationFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`domain = "devtools"`, `type = "app"`, `template = "go-cli"`, `description = "Keeps repos healthy"`, `confluences = ["ship", "brand"]`} {
+	for _, want := range []string{`domain = "devtools"`, `type = "app"`, `template = "go-cli"`, `description = "Keeps repos healthy"`, `confluences = ["brand", "ship"]`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("project.toml missing %q:\n%s", want, b)
 		}

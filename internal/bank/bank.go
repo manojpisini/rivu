@@ -77,6 +77,39 @@ func Sync(p registry.Project, owner string) error {
 	}
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
+
+// SetConfluences rewrites only the [rivu].confluences array from the
+// registry (which is truth, spec 1.4.2); every other key and unknown
+// sections pass through untouched. An empty list clears the array, it
+// is never written as nil. Callers guard on HasBank and OnDisk so the
+// Bank is never born here (P5.03).
+func SetConfluences(p registry.Project, names []string) error {
+	path := filepath.Join(p.Path, ".metadata", "project.toml")
+	doc := map[string]map[string]any{}
+	if b, err := os.ReadFile(path); err == nil {
+		if _, err := toml.Decode(string(b), &doc); err != nil {
+			return fmt.Errorf("parse project.toml: %w", err)
+		}
+	}
+	rivu := doc["rivu"]
+	if rivu == nil {
+		rivu = map[string]any{}
+		doc["rivu"] = rivu
+	}
+	if names == nil {
+		names = []string{}
+	}
+	rivu["confluences"] = names
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(doc); err != nil {
+		return fmt.Errorf("encode project.toml: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0644)
+}
+
 func Build(p registry.Project, owner string, m Meta) error {
 	d := filepath.Join(p.Path, ".metadata")
 	if err := os.MkdirAll(d, 0755); err != nil {
