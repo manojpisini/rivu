@@ -15,8 +15,10 @@ import (
 // deleting a confluence only unlinks it — no project is ever touched
 // (safety rule 1).
 type Confluence struct {
-	ID, Name, Notes string
-	Members         int
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Notes   string `json:"notes"`
+	Members int    `json:"members"`
 }
 
 // confluenceCols is the list/find projection; Members comes from the

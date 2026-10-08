@@ -17,13 +17,24 @@ import (
 )
 
 type Project struct {
-	ID, Name, Slug, Path, Channel, FlowStage, Language string
-	Stack                                              []string
-	Root                                               string
-	HasGit, HasBank, HasMap                            bool
-	HealthScore                                        int
-	CreatedAt, LastOpenedAt, LastScannedAt             time.Time
-	OnDisk, Registered                                 bool
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Slug          string    `json:"slug"`
+	Path          string    `json:"path"`
+	Channel       string    `json:"channel"`
+	FlowStage     string    `json:"flow_stage"`
+	Language      string    `json:"language"`
+	Stack         []string  `json:"stack"`
+	Root          string    `json:"root"`
+	HasGit        bool      `json:"has_git"`
+	HasBank       bool      `json:"has_bank"`
+	HasMap        bool      `json:"has_map"`
+	HealthScore   int       `json:"health_score"`
+	CreatedAt     time.Time `json:"created_at"`
+	LastOpenedAt  time.Time `json:"last_opened_at"`
+	LastScannedAt time.Time `json:"last_scanned_at"`
+	OnDisk        bool      `json:"on_disk"`
+	Registered    bool      `json:"registered"`
 }
 type Registry struct{ DB *sql.DB }
 
