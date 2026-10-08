@@ -12,6 +12,9 @@ import (
 // TestEndToEndSearch (P3.35): drive the real Root through a tea
 // program — type `/go<enter>`, assert the filtered model, then `q`.
 func TestEndToEndSearch(t *testing.T) {
+	if raceBuild {
+		t.Skip("upstream: teatest's ANSI compressor + bubbletea SetWindowTitle race (bubbletea v1.3.5–v1.3.10)")
+	}
 	t.Setenv("NO_COLOR", "1")
 
 	tm := teatest.NewTestModel(t, goldenRoot(), teatest.WithInitialTermSize(100, 30))
