@@ -16,4 +16,4 @@ FIELDS - GENERAL
   workspace.secondary_roots       -
   workspace.auto_rescan_on_launch true
 
-[tab] section  [j/k] move  [esc] back
+[tab] section  [j/k] move  [enter] fields  [ctrl+s] save  [r] reset  [esc] back

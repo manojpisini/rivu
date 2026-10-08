@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -19,9 +20,11 @@ func testSettingsConfig() config.Config {
 }
 
 // settingsFixture opens the Settings screen (spec 3.8) from the
-// dashboard with `S`.
+// dashboard with `S`. RIVU_HOME is pinned so the defaults and any
+// save in these tests stay inside the test (safety rule 8).
 func settingsFixture(t *testing.T) Root {
 	t.Helper()
+	t.Setenv("RIVU_HOME", t.TempDir())
 	m, f := scanFixture(t)
 	m, cmd := updateC(t, m, runeKey("S"))
 	if cmd == nil {
@@ -131,8 +134,8 @@ func TestSettingsSectionsMapConfigKeys(t *testing.T) {
 	}
 	for _, s := range secs {
 		for _, f := range s.fields {
-			if f[0] != "version" && f[0] != "go" && f[0] != "platform" && !strings.Contains(f[0], ".") {
-				t.Errorf("%s: field %q is not a config.toml key", s.name, f[0])
+			if f.key != "version" && f.key != "go" && f.key != "platform" && !strings.Contains(f.key, ".") {
+				t.Errorf("%s: field %q is not a config.toml key", s.name, f.key)
 			}
 		}
 	}
@@ -146,5 +149,170 @@ func TestSettingsKeyBinding(t *testing.T) {
 	}
 	if n := len(keys.ShortHelp()); n != 8 {
 		t.Fatalf("ShortHelp = %d bindings, want 8", n)
+	}
+}
+
+// clearInput backspaces whatever the input line holds.
+func clearInput(t *testing.T, r Root) Root {
+	t.Helper()
+	for i := 0; i < 64; i++ {
+		r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	return r
+}
+
+// configPath is where config.Save writes under the pinned RIVU_HOME.
+func configPath(t *testing.T) string {
+	t.Helper()
+	p, err := config.Path()
+	if err != nil {
+		t.Fatalf("config path: %v", err)
+	}
+	return p
+}
+
+// TestSettingsFieldEditApplies: enter moves into the fields pane,
+// enter opens the input line, a valid value lands in r.cfg (memory
+// only) and esc walks back out.
+func TestSettingsFieldEditApplies(t *testing.T) {
+	r := settingsFixture(t)
+	r, _ = upd(t, r, keyEnter()) // section -> fields
+	if r.setgFocus != 1 || r.setgField != 0 {
+		t.Fatalf("focus = %d field = %d, want 1/0", r.setgFocus, r.setgField)
+	}
+	r, _ = upd(t, r, keyEnter()) // open workspace.root
+	if !r.setgTIOn {
+		t.Fatal("enter must open the input line")
+	}
+	r = clearInput(t, r)
+	r, _ = upd(t, r, runeKey("/ws/new"))
+	r, _ = upd(t, r, keyEnter())
+	if r.setgTIOn {
+		t.Fatal("valid value must close the input line")
+	}
+	if r.cfg.Workspace.Root != "/ws/new" {
+		t.Fatalf("root = %q, want /ws/new", r.cfg.Workspace.Root)
+	}
+	if r.dashboard.cfg.Workspace.Root == "/ws/new" {
+		t.Fatal("dashboard cfg must only follow on save")
+	}
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEsc})
+	if r.setgFocus != 0 {
+		t.Fatalf("esc = focus %d, want back to sections", r.setgFocus)
+	}
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEsc})
+	if r.screen != ScreenDashboard {
+		t.Fatalf("screen = %v, want dashboard", r.screen)
+	}
+}
+
+// TestSettingsInlineValidation: a bad int keeps the input open, shows
+// the error under it and leaves the config untouched.
+func TestSettingsInlineValidation(t *testing.T) {
+	r := settingsFixture(t)
+	for i := 0; i < 2; i++ {
+		r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyTab}) // General -> Flow
+	}
+	r, _ = upd(t, r, keyEnter())
+	if !strings.Contains(r.View(), "flow.stale_threshold_days") {
+		t.Fatalf("Flow fields missing stale_threshold_days in %q", r.View())
+	}
+	r, _ = upd(t, r, keyEnter())
+	if !r.setgTIOn {
+		t.Fatal("enter must open the input line")
+	}
+	r = clearInput(t, r)
+	r, _ = upd(t, r, runeKey("abc"))
+	r, _ = upd(t, r, keyEnter())
+	if !r.setgTIOn {
+		t.Fatal("invalid value must keep the input open")
+	}
+	if !strings.Contains(r.setgErr, "flow.stale_threshold_days") || !strings.Contains(r.setgErr, "whole number") {
+		t.Fatalf("setgErr = %q, want inline parse complaint", r.setgErr)
+	}
+	if v := r.View(); !strings.Contains(v, "flow.stale_threshold_days: must be a whole number") {
+		t.Fatalf("view missing inline error in %q", v)
+	}
+	if r.cfg.Flow.StaleThresholdDays != 45 {
+		t.Fatalf("stale threshold = %d, want the original 45", r.cfg.Flow.StaleThresholdDays)
+	}
+	r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyEsc})
+	if r.setgTIOn || r.setgErr != "" {
+		t.Fatalf("esc must cancel the edit (on=%v err=%q)", r.setgTIOn, r.setgErr)
+	}
+}
+
+// TestSettingsBoolToggle: enter on a bool field flips it without an
+// input line.
+func TestSettingsBoolToggle(t *testing.T) {
+	r := settingsFixture(t)
+	for i := 0; i < 3; i++ {
+		r, _ = upd(t, r, tea.KeyMsg{Type: tea.KeyTab}) // -> Bridge
+	}
+	r, _ = upd(t, r, keyEnter())
+	if r.setgField != 0 {
+		t.Fatalf("field = %d, want 0 (bridge.enabled)", r.setgField)
+	}
+	r, _ = upd(t, r, keyEnter())
+	if r.setgTIOn {
+		t.Fatal("bool fields must not open the input line")
+	}
+	if !r.cfg.Bridge.Enabled {
+		t.Fatal("enter must toggle bridge.enabled to true")
+	}
+	v := r.View()
+	if !strings.Contains(v, "Bridge integration    enabled") {
+		t.Fatalf("summary did not flip to enabled in %q", v)
+	}
+	r, _ = upd(t, r, keyEnter())
+	if r.cfg.Bridge.Enabled {
+		t.Fatal("second enter must toggle back to false")
+	}
+}
+
+// TestSettingsCtrlSSaves: ctrl+s validates, writes config.toml through
+// the atomic Save and toasts the path; the dashboard cfg follows.
+func TestSettingsCtrlSSaves(t *testing.T) {
+	r := settingsFixture(t)
+	r, _ = upd(t, r, keyEnter())
+	r, _ = upd(t, r, keyEnter()) // edit workspace.root
+	r = clearInput(t, r)
+	r, _ = upd(t, r, runeKey("/ws/saved"))
+	r, _ = upd(t, r, keyEnter())
+	if len(r.toasts) != 0 {
+		t.Fatalf("apply must not toast yet, got %v", r.toasts)
+	}
+	r, toast := upd(t, r, keyCtrlS())
+	r, _ = upd(t, r, toast())
+	if len(r.toasts) != 1 || r.toasts[0].Level != "good" || !strings.Contains(r.toasts[0].Text, "settings saved") {
+		t.Fatalf("toasts = %+v, want one good save notice", r.toasts)
+	}
+	if r.dashboard.cfg.Workspace.Root != "/ws/saved" {
+		t.Fatal("dashboard cfg must follow a successful save")
+	}
+	body, err := os.ReadFile(configPath(t))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(body), "/ws/saved") {
+		t.Fatalf("config.toml = %q, want the saved root", body)
+	}
+}
+
+// TestSettingsResetSection: r restores the section's defaults in
+// memory only — nothing hits disk until ctrl+s.
+func TestSettingsResetSection(t *testing.T) {
+	r := settingsFixture(t)
+	defRoot := config.Default().Workspace.Root
+	r, toast := upd(t, r, runeKey("r"))
+	r, _ = upd(t, r, toast())
+	if r.cfg.Workspace.Root != defRoot {
+		t.Fatalf("root after reset = %q, want default %q", r.cfg.Workspace.Root, defRoot)
+	}
+	if len(r.toasts) != 1 || !strings.Contains(r.toasts[0].Text, "reset to defaults") {
+		t.Fatalf("toasts = %+v, want a reset notice", r.toasts)
+	}
+	if _, err := os.Stat(configPath(t)); err == nil {
+		t.Fatal("reset must not write config.toml on its own")
 	}
 }

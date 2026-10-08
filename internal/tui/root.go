@@ -135,6 +135,11 @@ type Root struct {
 	conflTIMode  string             // "", "new" or "rename"
 	conflTIQ     string             // rename target (confluence id)
 	setgCursor   int                // selected Settings section
+	setgFocus    int                // 0 = sections, 1 = fields (P5.08)
+	setgField    int                // selected field in the fields pane
+	setgTI       textinput.Model    // field input line
+	setgTIOn     bool               // a field is being edited
+	setgErr      string             // inline validation error
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -259,6 +264,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Every entry starts a fresh wizard (P4.01).
 			r.src = newSourceWizard(r.cfg)
 			r.dashboard.Status = ""
+		}
+		if x.Screen == ScreenSettings {
+			// Re-entering never resurrects a half-done edit (P5.08).
+			r.setgCursor, r.setgFocus, r.setgField = 0, 0, 0
+			r.setgTI, r.setgTIOn, r.setgErr = textinput.Model{}, false, ""
 		}
 		return r, nil
 	case projectsMsg:
