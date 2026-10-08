@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,28 +38,29 @@ func TestClassifyMarkers(t *testing.T) {
 		files  []string
 		lang   string
 		stack  string
+		score  int
 		strong bool
 	}{
-		{[]string{"go.mod"}, "Go", "go", true},
-		{[]string{"Cargo.toml"}, "Rust", "rust", true},
-		{[]string{"requirements.txt"}, "Python", "python", true},
-		{[]string{"setup.py"}, "Python", "python", true},
-		{[]string{"package.json"}, "JavaScript/TypeScript", "node", true},
-		{[]string{"deno.json"}, "JavaScript/TypeScript", "deno", true},
-		{[]string{"pom.xml"}, "Java", "java", true},
-		{[]string{"build.gradle"}, "Java", "gradle", true},
-		{[]string{"build.gradle.kts"}, "Kotlin", "gradle", true},
-		{[]string{"App.sln"}, "C#", "dotnet", true},
-		{[]string{"App.csproj"}, "C#", "dotnet", true},
-		{[]string{"Gemfile"}, "Ruby", "ruby", true},
-		{[]string{"composer.json"}, "PHP", "php", true},
-		{[]string{"mix.exs"}, "Elixir", "elixir", true},
-		{[]string{"CMakeLists.txt"}, "C/C++", "cmake", true},
-		{[]string{"Package.swift"}, "Swift", "swift", true},
-		{[]string{"Dockerfile"}, "", "docker", false},
-		{[]string{".git"}, "", "", true},
-		{[]string{"notes.txt"}, "", "", false},
-		{[]string{"go.mod", "Dockerfile"}, "Go", "go,docker", true},
+		{[]string{"go.mod"}, "Go", "go", 3, true},
+		{[]string{"Cargo.toml"}, "Rust", "rust", 3, true},
+		{[]string{"requirements.txt"}, "Python", "python", 3, true},
+		{[]string{"setup.py"}, "Python", "python", 3, true},
+		{[]string{"package.json"}, "JavaScript/TypeScript", "node", 3, true},
+		{[]string{"deno.json"}, "JavaScript/TypeScript", "deno", 3, true},
+		{[]string{"pom.xml"}, "Java", "java", 3, true},
+		{[]string{"build.gradle"}, "Java", "gradle", 3, true},
+		{[]string{"build.gradle.kts"}, "Kotlin", "gradle", 3, true},
+		{[]string{"App.sln"}, "C#", "dotnet", 3, true},
+		{[]string{"App.csproj"}, "C#", "dotnet", 3, true},
+		{[]string{"Gemfile"}, "Ruby", "ruby", 3, true},
+		{[]string{"composer.json"}, "PHP", "php", 3, true},
+		{[]string{"mix.exs"}, "Elixir", "elixir", 3, true},
+		{[]string{"CMakeLists.txt"}, "C/C++", "cmake", 3, true},
+		{[]string{"Package.swift"}, "Swift", "swift", 3, true},
+		{[]string{"Dockerfile"}, "", "docker", 1, false},
+		{[]string{".git"}, "", "", 3, true},
+		{[]string{"notes.txt"}, "", "", 0, false},
+		{[]string{"go.mod", "Dockerfile"}, "Go", "go,docker", 4, true},
 	} {
 		name := tc.files[0]
 		t.Run(name, func(t *testing.T) {
@@ -72,11 +74,65 @@ func TestClassifyMarkers(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			lang, stack, strong := classify(d)
-			if lang != tc.lang || strong != tc.strong || strings.Join(stack, ",") != tc.stack {
-				t.Errorf("classify = (%q, %v, %v), want (%q, %v, %v)", lang, stack, strong, tc.lang, tc.stack, tc.strong)
+			lang, stack, score, strong := classify(d)
+			if lang != tc.lang || strong != tc.strong || score != tc.score || strings.Join(stack, ",") != tc.stack {
+				t.Errorf("classify = (%q, %v, %d, %v), want (%q, %v, %d, %v)", lang, stack, score, strong, tc.lang, tc.stack, tc.score, tc.strong)
 			}
 		})
+	}
+}
+
+// TestWeakMarkerScoring (S-02): weak markers score 1 and never reach
+// the threshold alone or in pairs; three weak markers register but are
+// flagged unconfirmed through a scan warning.
+func TestWeakMarkerScoring(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Below threshold: README only (1), README + src/ (2).
+	write("00_Source/readme-only/README.md", "# hi\n")
+	write("00_Source/readme-src/README.md", "# hi\n")
+	write("00_Source/readme-src/src/main.go", "package main\n")
+	// At threshold on weak markers only: README + src/ + Dockerfile (3).
+	write("00_Source/weak-full/README.md", "# hi\n")
+	write("00_Source/weak-full/src/main.go", "package main\n")
+	write("00_Source/weak-full/Dockerfile", "FROM scratch\n")
+	// Strong marker controls.
+	write("00_Source/go-proj/go.mod", "module x\n")
+
+	got, warns, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range got {
+		names = append(names, p.Name)
+	}
+	slices.Sort(names)
+	if strings.Join(names, ",") != "go-proj,weak-full" {
+		t.Errorf("projects = %v, want [go-proj weak-full]", names)
+	}
+	unconfirmed := false
+	for _, w := range warns {
+		if strings.Contains(w.Error(), "unconfirmed") && strings.Contains(w.Error(), "weak-full") {
+			unconfirmed = true
+		}
+	}
+	if !unconfirmed {
+		t.Errorf("weak-only project not flagged unconfirmed, warnings = %v", warns)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Error(), "go-proj") {
+			t.Errorf("strong project must not be flagged: %v", w)
+		}
 	}
 }
 

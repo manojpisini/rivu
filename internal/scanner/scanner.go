@@ -49,10 +49,16 @@ func bankID(path string) string {
 	return f.Rivu.ID
 }
 
+// threshold is the score needed to treat a directory as a project
+// (S-02): every strong marker scores 3, weak markers 1, so one strong
+// marker always qualifies while weak ones need three (README + src/ +
+// a build file). Weak-only discoveries register but are flagged
+// unconfirmed through a scan warning.
+const threshold = 3
+
 // marker is one detection rule: a file (or "*.<ext>" glob) in the project
 // root that signals an ecosystem. First marker with a language wins for
-// lang; stack tokens are deduplicated; strong markers make a directory a
-// project on their own.
+// lang; stack tokens are deduplicated; strong markers score 3, weak 1.
 type marker struct {
 	name   string
 	lang   string
@@ -91,11 +97,19 @@ func markerPresent(root, name string) bool {
 	return exists(filepath.Join(root, name))
 }
 
-func classify(path string) (string, []string, bool) {
+func classify(path string) (string, []string, int, bool) {
 	var lang string
 	var stack []string
-	strong := exists(filepath.Join(path, ".git")) ||
-		exists(filepath.Join(path, ".metadata", "project.toml"))
+	score := 0
+	strong := false
+	if exists(filepath.Join(path, ".git")) {
+		score += threshold
+		strong = true
+	}
+	if exists(filepath.Join(path, ".metadata", "project.toml")) {
+		score += threshold
+		strong = true
+	}
 	for _, m := range markers {
 		if !markerPresent(path, m.name) {
 			continue
@@ -107,10 +121,26 @@ func classify(path string) (string, []string, bool) {
 			stack = append(stack, m.stack)
 		}
 		if m.strong {
+			score += threshold
 			strong = true
+		} else {
+			score++
 		}
 	}
-	return lang, stack, strong
+	// Weak markers (S-02): README.md alone and a non-empty src/ alone
+	// count 1 but are not sufficient on their own (spec 2.8).
+	if exists(filepath.Join(path, "README.md")) {
+		score++
+	}
+	if nonEmptyDir(filepath.Join(path, "src")) {
+		score++
+	}
+	return lang, stack, score, strong
+}
+
+func nonEmptyDir(p string) bool {
+	ents, err := os.ReadDir(p)
+	return err == nil && len(ents) > 0
 }
 
 // junkDirs are OS noise that never contains user projects.
@@ -219,8 +249,8 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 				// Unsluggable folder names can never be registered safely.
 				return filepath.SkipDir
 			}
-			lang, stack, strong := classify(path)
-			if strong {
+			lang, stack, score, strong := classify(path)
+			if score >= threshold {
 				channel := "00_Source"
 				parts := strings.Split(rel, string(os.PathSeparator))
 				if len(parts) > 1 {
@@ -232,6 +262,9 @@ func (s *Scanner) ScanContext(ctx context.Context, root string, progress func(di
 				}
 				now := time.Now()
 				out = append(out, registry.Project{ID: id, Name: name, Slug: sl, Path: path, Root: root, Channel: channel, FlowStage: registry.FlowForChannel(channel), Language: lang, Stack: stack, HasGit: exists(filepath.Join(path, ".git")), HasBank: exists(filepath.Join(path, ".metadata", "project.toml")), HasMap: exists(filepath.Join(path, ".metadata", "agent", "PROJECT_MAP.md")), CreatedAt: now, LastScannedAt: now, OnDisk: true, Registered: false})
+				if !strong {
+					warnings = append(warnings, fmt.Errorf("unconfirmed: %s reached the score threshold on weak markers only (README, src/, build file)", rel))
+				}
 				return filepath.SkipDir
 			}
 		}
