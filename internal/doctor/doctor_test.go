@@ -11,12 +11,75 @@ import (
 	"github.com/manojpisini/rivu/internal/registry"
 )
 
-func TestScore(t *testing.T) {
-	d := t.TempDir()
-	_ = os.WriteFile(filepath.Join(d, "README.md"), []byte("x"), 0644)
-	r := Run(registry.Project{Path: d}, "", 45, nil)
-	if r.Score < 20 {
-		t.Fatalf("score=%d", r.Score)
+// TestEachCheck (D-08): one table, one case per check — the fixture
+// decides pass/fail, the finding names exactly what is missing, and
+// every failure carries a remedy.
+func TestEachCheck(t *testing.T) {
+	cases := []struct {
+		name    string
+		dirs    []string
+		files   []string
+		check   string
+		wantOK  bool
+		finding string
+	}{
+		{"README present", nil, []string{"README.md"}, "README", true, ""},
+		{"README missing", nil, nil, "README", false, "README.md missing"},
+		{"Git present", []string{".git"}, nil, "Git", true, ""},
+		{"Git missing", nil, nil, "Git", false, ".git missing — not a repository"},
+		{"Bank present", []string{".metadata"}, []string{".metadata/project.toml"}, "Bank", true, ""},
+		{"Bank missing", nil, nil, "Bank", false, ".metadata/project.toml missing"},
+		{"Map present", []string{".metadata/agent"}, []string{".metadata/agent/PROJECT_MAP.md"}, "Map", true, ""},
+		{"Map missing", nil, nil, "Map", false, ".metadata/agent/PROJECT_MAP.md missing"},
+		{"Tests present", []string{"test"}, nil, "Tests", true, ""},
+		{"Tests missing", nil, nil, "Tests", false, "no tests detected"},
+		{"CI present", []string{".github/workflows"}, nil, "CI", true, ""},
+		{"CI missing", nil, nil, "CI", false, "no workflow under .github/workflows"},
+		{"License present", nil, []string{"LICENSE"}, "License", true, ""},
+		{"License missing", nil, nil, "License", false, "LICENSE missing"},
+		{"Deps locked", nil, []string{"go.mod", "go.sum"}, "Dependencies", true, ""},
+		{"Deps unlocked", nil, []string{"go.mod"}, "Dependencies", false, "manifest without lockfile: go.mod"},
+		{"On disk", nil, nil, "On disk", true, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			for _, dir := range tc.dirs {
+				if err := os.MkdirAll(filepath.Join(d, dir), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, f := range tc.files {
+				if err := os.WriteFile(filepath.Join(d, f), []byte("x"), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := Run(registry.Project{Path: d, CreatedAt: time.Now()}, "", 45, nil)
+			var got Check
+			found := false
+			for _, c := range r.Checks {
+				if c.Name == tc.check {
+					got, found = c, true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("no %s check in report", tc.check)
+			}
+			if got.OK != tc.wantOK {
+				t.Errorf("OK = %v (finding %q), want %v", got.OK, got.Finding, tc.wantOK)
+			}
+			if !tc.wantOK {
+				if got.Finding != tc.finding {
+					t.Errorf("finding = %q, want %q", got.Finding, tc.finding)
+				}
+				if got.Remedy == "" {
+					t.Error("failing check needs a remedy")
+				}
+			} else if got.Finding != "" || got.Remedy != "" {
+				t.Errorf("passing check carries failure text: %+v", got)
+			}
+		})
 	}
 }
 

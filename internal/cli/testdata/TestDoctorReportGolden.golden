@@ -1,0 +1,19 @@
+
+golden — Health 35/100
+  ! README         README.md missing
+      fix: run `rivu doctor golden --fix readme --yes`
+  ! Git            .git missing — not a repository
+      fix: run `git init` in the project folder
+  ✓ Bank           Rivu metadata
+  ✓ Map            agent-readable map
+  ! Tests          no tests detected
+      fix: add tests (a tests/ folder, *_test.go files, or a configured test script)
+  ! CI             no workflow under .github/workflows
+      fix: add a workflow under .github/workflows
+  ! License        LICENSE missing
+      fix: add a LICENSE file
+  ✓ Dependencies   no dependency manifest
+  ✓ On disk        project folder present
+  ✓ Stale          activity within 45d
+  ✓ Bank files     human docs present
+  ✓ Git exclusivity single git owner

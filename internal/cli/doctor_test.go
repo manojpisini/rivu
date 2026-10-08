@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/exp/golden"
 )
 
 func TestDoctorFlags(t *testing.T) {
@@ -229,4 +231,35 @@ func TestDoctorMissingProject(t *testing.T) {
 	if !strings.Contains(out, `"missing":true`) || !strings.Contains(out, `"slug":"gone"`) {
 		t.Errorf("json = %q, want missing:true for gone", out)
 	}
+}
+
+// TestDoctorReportGolden (D-08): pin the full text report for a
+// freshly sourced project — header, every check line, findings and
+// remedies — so output drift shows up as a golden diff.
+// Regenerate with: go test ./internal/cli -run TestDoctorReportGolden -update
+func TestDoctorReportGolden(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+	ws := filepath.Join(home, "ws")
+	if err := os.MkdirAll(ws, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[workspace]\nroot = %q\n", ws)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) int {
+		t.Helper()
+		return Run("test", "dev", "unknown", args)
+	}
+	if got := run("source", "golden", "--no-git"); got != 0 {
+		t.Fatalf("source exit = %d", got)
+	}
+	out := captureStdout(t, func() {
+		if code := run("doctor", "golden"); code != 0 {
+			t.Errorf("doctor exit = %d", code)
+		}
+	})
+	golden.RequireEqual(t, []byte(out))
 }
