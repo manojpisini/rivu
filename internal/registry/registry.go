@@ -469,8 +469,14 @@ func (r *Registry) ApplyFlow(id, path, channel, flow string, hasBank, hasMap boo
 	if n, _ := res.RowsAffected(); n == 0 {
 		return errors.New("project not found")
 	}
+	// The feed words a Delta move "deltaed" (spec 3.3 drawing), every
+	// other move "flowed".
+	event := "flowed"
+	if flow == "delta" {
+		event = "deltaed"
+	}
 	if _, err := tx.Exec(`INSERT INTO activity_log(id,project_id,event,occurred_at) VALUES(?,?,?,?)`,
-		uuid.NewString(), id, "flowed", time.Now()); err != nil {
+		uuid.NewString(), id, event, time.Now()); err != nil {
 		return err
 	}
 	return tx.Commit()

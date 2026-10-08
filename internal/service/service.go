@@ -619,6 +619,9 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 		// identical points (P5.05). A missing snapshot must not fail
 		// the health run itself.
 		_ = a.Registry.AddSnapshot(p.ID, r.Score, time.Now())
+		// Feed event for the recent-activity panel (spec 3.3; P5.11) —
+		// a missing row must not fail the health run itself.
+		_ = a.Registry.LogActivity(p.ID, "health")
 		// A missing trend must not fail the health run itself (P4.14).
 		if snaps, e := a.Registry.HealthSnapshots(p.ID, 30); e == nil {
 			for _, s := range snaps {
@@ -646,7 +649,14 @@ func (a *App) Map(q string) error {
 	if e = mapgen.Build(p, a.Config.Scanner.Ignore); e != nil {
 		return e
 	}
-	return a.Registry.UpdateFlags(p.ID, true, true)
+	if e = a.Registry.UpdateFlags(p.ID, true, true); e != nil {
+		return e
+	}
+	// Feed event for the recent-activity panel (P5.11); MapBulk logs
+	// per project because it builds through this method. Best effort,
+	// like the other feed writes.
+	_ = a.Registry.LogActivity(p.ID, "map_built")
+	return nil
 }
 
 // MapStatus reports Map freshness for one project (q) or every project

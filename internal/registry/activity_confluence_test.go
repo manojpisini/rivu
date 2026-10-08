@@ -56,6 +56,40 @@ func TestRecentActivityOrderAndLimit(t *testing.T) {
 	}
 }
 
+func TestApplyFlowLogsFeedEvents(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	p := Project{ID: "p1", Name: "One", Slug: "one", Path: filepath.Join(t.TempDir(), "one"), FlowStage: "source", Channel: "00_Source"}
+	if err := r.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.ApplyFlow("p1", filepath.Join(t.TempDir(), "two"), "01_Active", "active", false, false); err != nil {
+		t.Fatalf("ApplyFlow to active: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if err := r.ApplyFlow("p1", filepath.Join(t.TempDir(), "three"), "90_Delta", "delta", false, false); err != nil {
+		t.Fatalf("ApplyFlow to delta: %v", err)
+	}
+
+	act, err := r.RecentActivity(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(act) != 2 {
+		t.Fatalf("RecentActivity = %d events, want 2", len(act))
+	}
+	// Newest first: the Delta move words itself "deltaed" (spec 3.3),
+	// every other move stays "flowed".
+	if act[0].Event != "deltaed" || act[1].Event != "flowed" {
+		t.Errorf("events = %s, %s; want deltaed, flowed", act[0].Event, act[1].Event)
+	}
+}
+
 func TestAttachConfluenceAndLookup(t *testing.T) {
 	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
 	if err != nil {

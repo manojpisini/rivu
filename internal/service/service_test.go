@@ -947,3 +947,35 @@ func TestLogTailAndRecentActivity(t *testing.T) {
 		t.Errorf("RecentActivity = %+v, want newest sourced log-act", act)
 	}
 }
+
+// TestMapAndDoctorWriteFeedEvents backs the recent-activity feed
+// (P5.11): Map and Doctor write their events to activity_log so the
+// Master Dashboard feed shows them.
+func TestMapAndDoctorWriteFeedEvents(t *testing.T) {
+	a := openTestApp(t)
+	if _, err := a.Source("feed-ev", SourceOpts{Flow: "source"}); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	if err := a.Map("feed-ev"); err != nil {
+		t.Fatalf("Map: %v", err)
+	}
+	if _, err := a.Doctor("feed-ev"); err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+
+	act, err := a.RecentActivity(10)
+	if err != nil {
+		t.Fatalf("RecentActivity: %v", err)
+	}
+	want := map[string]bool{"sourced": false, "map_built": false, "health": false}
+	for _, e := range act {
+		if _, ok := want[e.Event]; ok {
+			want[e.Event] = true
+		}
+	}
+	for ev, saw := range want {
+		if !saw {
+			t.Errorf("missing %q event in activity_log: %+v", ev, act)
+		}
+	}
+}
