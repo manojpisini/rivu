@@ -607,6 +607,12 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 		}
 		out = append(out, r)
 	}
+	// Trim history outside the retention window; pruning must never
+	// fail the health run itself, and a non-positive window keeps
+	// everything (P5.06).
+	if d := a.Config.Data.SnapshotRetentionDays; d > 0 {
+		_ = a.Registry.PruneSnapshots(time.Now().AddDate(0, 0, -d))
+	}
 	return out, nil
 }
 func (a *App) Map(q string) error {

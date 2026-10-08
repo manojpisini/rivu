@@ -851,3 +851,60 @@ func TestDoctorWritesSnapshotAndDedupes(t *testing.T) {
 		t.Fatalf("snapshots after same-day rerun = %d, want 1 (deduped)", n)
 	}
 }
+
+// TestDoctorPrunesSnapshotsBeyondRetention: a doctor run drops history
+// older than snapshot_retention_days and keeps the rest; a non-positive
+// window keeps everything (P5.06).
+func TestDoctorPrunesSnapshotsBeyondRetention(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	a, err := Open()
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer a.Close()
+
+	p := registry.Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(home, "alpha"), FlowStage: "source"}
+	if err := a.Registry.Upsert(p); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	now := time.Now()
+	seed := []struct {
+		id string
+		at time.Time
+	}{
+		{"ancient", now.AddDate(0, 0, -120)},
+		{"fresh", now.AddDate(0, 0, -10)},
+	}
+	for _, s := range seed {
+		if _, err := a.Registry.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES(?,?,?,?)`,
+			s.id, "p1", 60, s.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.Doctor("alpha"); err != nil {
+		t.Fatalf("Doctor: %v", err)
+	}
+	got, err := a.Registry.HealthSnapshots("p1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// fresh (day -10) + today's run (retention 90 days); ancient is gone.
+	if len(got) != 2 {
+		t.Fatalf("snapshots after prune = %+v, want 2 (fresh + today)", got)
+	}
+	// A zero window disables pruning entirely.
+	a.Config.Data.SnapshotRetentionDays = 0
+	if _, err := a.Registry.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES('ancient2','p1',40,?)`,
+		now.AddDate(0, 0, -400)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Doctor("alpha"); err != nil {
+		t.Fatalf("Doctor (retention 0): %v", err)
+	}
+	if got, _ := a.Registry.HealthSnapshots("p1", 0); len(got) != 3 {
+		t.Fatalf("snapshots with retention 0 = %+v, want 3 (nothing pruned)", got)
+	}
+}

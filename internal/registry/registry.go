@@ -446,6 +446,13 @@ func (r *Registry) AddSnapshot(projectID string, score int, takenAt time.Time) e
 	return err
 }
 
+// PruneSnapshots deletes snapshots taken before the cutoff, keeping
+// health history within snapshot_retention_days (P5.06).
+func (r *Registry) PruneSnapshots(before time.Time) error {
+	_, err := r.DB.Exec(`DELETE FROM health_snapshots WHERE taken_at < ?`, before)
+	return err
+}
+
 // ApplyFlow records a completed Flow move in one transaction: path,
 // channel, stage, asset flags and the activity log (P1.43).
 func (r *Registry) ApplyFlow(id, path, channel, flow string, hasBank, hasMap bool) error {

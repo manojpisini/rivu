@@ -974,6 +974,50 @@ func TestAddSnapshotDedupesSameDayAndScore(t *testing.T) {
 	}
 }
 
+// TestPruneSnapshotsDropsOlderThanCutoff: rows before the cutoff go,
+// rows at or after it stay, and pruning an empty table is a no-op
+// (P5.06).
+func TestPruneSnapshotsDropsOlderThanCutoff(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.Upsert(Project{ID: "p1", Name: "Alpha", Slug: "alpha", Path: filepath.Join(t.TempDir(), "alpha"), FlowStage: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct {
+		id string
+		at time.Time
+	}{
+		{"old", time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)},
+		{"edge", time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)},
+		{"recent", time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)},
+	}
+	for i, row := range rows {
+		if _, err := r.DB.Exec(`INSERT INTO health_snapshots(id,project_id,score,taken_at) VALUES(?,?,?,?)`,
+			row.id, "p1", 50+i, row.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.PruneSnapshots(time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("PruneSnapshots: %v", err)
+	}
+	got, err := r.HealthSnapshots("p1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Score != 51 || got[1].Score != 52 {
+		t.Fatalf("after prune = %+v, want scores [51 52] (cutoff row kept)", got)
+	}
+	if err := r.PruneSnapshots(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("prune all: %v", err)
+	}
+	if left, _ := r.HealthSnapshots("p1", 0); len(left) != 0 {
+		t.Fatalf("after prune-all = %+v, want empty", left)
+	}
+}
+
 // TestActivityDailyBucketsByCivilDay: one slot per day, zero-filled,
 // oldest first; events outside the window are dropped (P4.19).
 func TestActivityDailyBucketsByCivilDay(t *testing.T) {
