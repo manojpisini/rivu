@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -158,6 +159,26 @@ func TestGoldenPhase4Screens(t *testing.T) {
 			cfg.Data.DBPath = "/home/u/.rivu/rivu.db"
 			r.cfg = cfg
 			r, _ = upd(t, r, SelectScreenMsg{Screen: ScreenSettings})
+			return r
+		}},
+		{"logs", func(t *testing.T) Root {
+			r := sized(t)
+			r, _ = upd(t, r, SelectScreenMsg{Screen: ScreenLogs})
+			// Fixed times so the tail and activity render the same on
+			// every OS; one raw JSON line, one plain line.
+			r, _ = upd(t, r, logsLoadedMsg{
+				lines: prettyLogLines([]string{
+					`{"time":"2026-10-08T09:14:05.000Z","level":"INFO","msg":"scan started"}`,
+					`{"time":"2026-10-08T09:15:06.000Z","level":"ERROR","msg":"scan failed"}`,
+					"plain fallback line",
+				}),
+				act: []registry.Activity{
+					{Slug: "alpha", Name: "Alpha", Event: "opened",
+						OccurredAt: time.Date(2026, 10, 8, 9, 14, 0, 0, time.UTC)},
+					{Slug: "beta", Name: "Beta", Event: "sourced",
+						OccurredAt: time.Date(2026, 10, 7, 8, 55, 0, 0, time.UTC)},
+				},
+			})
 			return r
 		}},
 		{"actions-menu", func(t *testing.T) Root {

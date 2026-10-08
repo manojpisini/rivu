@@ -45,6 +45,10 @@ type Service struct {
 	ConflRename   string
 	ConflRemove   bool
 	ConflNames    []string
+	LogLines      []string
+	LogErr        error
+	RecentAct     []registry.Activity
+	RecentActErr  error
 
 	mu    sync.Mutex
 	calls []string
@@ -233,4 +237,22 @@ func (f *Service) ConfluenceRemove(project, confluence string) (bool, error) {
 func (f *Service) ProjectConfluences(q string) ([]string, error) {
 	f.record("ProjectConfluences " + q)
 	return f.ConflNames, f.ConflErr
+}
+
+// LogTail serves the canned rivu.log tail for the Logs screen (P5.10).
+func (f *Service) LogTail(n int) ([]string, error) {
+	out := f.LogLines
+	if n > 0 && len(out) > n {
+		out = out[len(out)-n:]
+	}
+	return out, f.LogErr
+}
+
+// RecentActivity serves the canned activity_log rows (P5.10).
+func (f *Service) RecentActivity(limit int) ([]registry.Activity, error) {
+	out := f.RecentAct
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, f.RecentActErr
 }

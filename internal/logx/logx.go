@@ -4,11 +4,14 @@
 package logx
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -32,7 +35,7 @@ func Open(dir string, verbose bool) (*slog.Logger, io.Closer, error) {
 	if err := os.MkdirAll(logs, 0700); err != nil {
 		return nil, nil, fmt.Errorf("create %s: %w", logs, err)
 	}
-	path := filepath.Join(logs, "rivu.log")
+	path := Path(dir)
 	if err := rotate(path); err != nil {
 		return nil, nil, fmt.Errorf("rotate %s: %w", path, err)
 	}
@@ -45,6 +48,54 @@ func Open(dir string, verbose bool) (*slog.Logger, io.Closer, error) {
 		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: level})), f, nil
+}
+
+// Path is where Open writes and where the Logs screen tails (P5.10).
+func Path(dir string) string {
+	return filepath.Join(dir, "logs", "rivu.log")
+}
+
+// tailWindow is how much of the file's end Tail reads; the log rotates
+// at 1 MB so 512 KB is at most half of any single generation.
+const tailWindow = 512 << 10
+
+// Tail returns the last n lines of path, oldest first. A missing file
+// is not an error — the Logs screen shows its empty state instead.
+func Tail(path string, n int) ([]string, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	var off int64
+	if st.Size() > tailWindow {
+		off = st.Size() - tailWindow
+	}
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("seek %s: %w", path, err)
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if off > 0 && len(lines) > 0 {
+		lines = lines[1:] // the window can start mid-line
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines, nil
 }
 
 // rotate shifts rivu.log -> .1 -> .2 -> .3 when the file reached

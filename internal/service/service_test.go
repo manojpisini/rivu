@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/manojpisini/rivu/internal/logx"
 	"github.com/manojpisini/rivu/internal/registry"
 )
 
@@ -906,5 +907,43 @@ func TestDoctorPrunesSnapshotsBeyondRetention(t *testing.T) {
 	}
 	if got, _ := a.Registry.HealthSnapshots("p1", 0); len(got) != 3 {
 		t.Fatalf("snapshots with retention 0 = %+v, want 3 (nothing pruned)", got)
+	}
+}
+
+// TestLogTailAndRecentActivity backs the Logs screen (P5.10): the
+// tail reads <home>/logs/rivu.log (missing file is empty, not an
+// error) and activity_log rows come through the service.
+func TestLogTailAndRecentActivity(t *testing.T) {
+	a := openTestApp(t)
+
+	if tail, err := a.LogTail(10); err != nil || len(tail) != 0 {
+		t.Fatalf("LogTail before any file = %q (err %v), want empty", tail, err)
+	}
+
+	dir := filepath.Join(os.Getenv("RIVU_HOME"), "logs")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(logx.Path(filepath.Join(os.Getenv("RIVU_HOME"))),
+		[]byte("one\ntwo\nthree\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tail, err := a.LogTail(2)
+	if err != nil {
+		t.Fatalf("LogTail: %v", err)
+	}
+	if len(tail) != 2 || tail[0] != "two" || tail[1] != "three" {
+		t.Errorf("LogTail(2) = %q, want [two three]", tail)
+	}
+
+	if _, err := a.Source("log-act", SourceOpts{Flow: "source"}); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	act, err := a.RecentActivity(5)
+	if err != nil {
+		t.Fatalf("RecentActivity: %v", err)
+	}
+	if len(act) == 0 || act[0].Slug != "log-act" || act[0].Event != "sourced" {
+		t.Errorf("RecentActivity = %+v, want newest sourced log-act", act)
 	}
 }

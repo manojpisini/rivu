@@ -140,6 +140,13 @@ type Root struct {
 	setgTI       textinput.Model    // field input line
 	setgTIOn     bool               // a field is being edited
 	setgErr      string             // inline validation error
+	logsSrc      int                // 0 = rivu.log, 1 = activity_log (P5.10)
+	logsFollow   bool               // follow mode: pin to the newest lines
+	logsScroll   int                // window start while follow is off
+	logsLines    []string           // formatted rivu.log tail
+	logsAct      []registry.Activity
+	logsLoaded   bool
+	logsErr      string
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -269,6 +276,34 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Re-entering never resurrects a half-done edit (P5.08).
 			r.setgCursor, r.setgFocus, r.setgField = 0, 0, 0
 			r.setgTI, r.setgTIOn, r.setgErr = textinput.Model{}, false, ""
+		}
+		if x.Screen == ScreenLogs {
+			// Fresh tail, follow on (P5.10); the batch loads content
+			// and starts the follow tick.
+			r.logsSrc, r.logsFollow, r.logsScroll = 0, true, 0
+			r.logsLines, r.logsAct, r.logsErr = nil, nil, ""
+			r.logsLoaded = false
+			return r, tea.Batch(r.loadLogs(), logsTickCmd())
+		}
+		return r, nil
+	case logsLoadedMsg:
+		if r.screen != ScreenLogs {
+			return r, nil // a load that finished after esc
+		}
+		r.logsLoaded = true
+		if x.err != nil {
+			r.logsErr = x.err.Error()
+		} else {
+			r.logsErr, r.logsLines, r.logsAct = "", prettyLogLines(x.lines), x.act
+		}
+		if r.logsFollow {
+			r.logsScroll = r.logsRowSet(len(r.logsRows()))
+			return r, logsTickCmd()
+		}
+		return r, nil
+	case logsTickMsg:
+		if r.screen == ScreenLogs && r.logsFollow {
+			return r, r.loadLogs()
 		}
 		return r, nil
 	case projectsMsg:
@@ -516,6 +551,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if r.screen == ScreenConfluence {
 			return r.confluenceKeys(x)
 		}
+		if r.screen == ScreenLogs {
+			return r.logsKeys(x)
+		}
 		if r.screen != ScreenDashboard {
 			// Sub-screens: esc/q go back, ctrl+c quits, everything else
 			// belongs to the screen once it grows its own keymap.
@@ -728,6 +766,8 @@ func (r Root) render() string {
 		body = r.settingsView()
 	case ScreenConfluence:
 		body = r.confluenceView()
+	case ScreenLogs:
+		body = r.logsView()
 	default:
 		name := screenNames[r.screen]
 		body = r.styleTitle.Render(strings.ToUpper(name))

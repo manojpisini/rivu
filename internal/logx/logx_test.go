@@ -3,6 +3,7 @@ package logx
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,58 @@ func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTailReturnsLastNLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rivu.log")
+	mustWrite(t, path, "one\ntwo\nthree\nfour\nfive\n")
+
+	got, err := Tail(path, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"three", "four", "five"}
+	if len(got) != len(want) || got[0] != want[0] || got[2] != want[2] {
+		t.Errorf("Tail(3) = %q, want %q", got, want)
+	}
+	all, err := Tail(path, 100)
+	if err != nil || len(all) != 5 {
+		t.Errorf("Tail(100) = %q (err %v), want all 5 lines", all, err)
+	}
+}
+
+func TestTailMissingFileIsEmptyNotError(t *testing.T) {
+	got, err := Tail(filepath.Join(t.TempDir(), "nope.log"), 10)
+	if err != nil {
+		t.Fatalf("missing file must not error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestTailLargeFileDropsPartialWindowLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rivu.log")
+	var b strings.Builder
+	for i := 0; b.Len() < tailWindow+1000; i++ {
+		b.WriteString("line-" + strconv.Itoa(i) + "\n")
+	}
+	mustWrite(t, path, b.String())
+
+	got, err := Tail(path, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 50 {
+		t.Fatalf("got %d lines, want 50", len(got))
+	}
+	for _, ln := range got {
+		if !strings.HasPrefix(ln, "line-") {
+			t.Fatalf("partial window line leaked: %q", ln)
+		}
+	}
+	if !strings.HasPrefix(got[len(got)-1], "line-") {
+		t.Errorf("last line = %q, want the newest line", got[len(got)-1])
 	}
 }

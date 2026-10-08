@@ -8,6 +8,7 @@ import (
 	"github.com/manojpisini/rivu/internal/config"
 	"github.com/manojpisini/rivu/internal/doctor"
 	"github.com/manojpisini/rivu/internal/editorlaunch"
+	"github.com/manojpisini/rivu/internal/logx"
 	"github.com/manojpisini/rivu/internal/mapgen"
 	"github.com/manojpisini/rivu/internal/pathsafe"
 	"github.com/manojpisini/rivu/internal/registry"
@@ -37,6 +38,8 @@ type Service interface {
 	List(f Filter) ([]registry.Project, error)
 	Stats(days int) (Stats, error)
 	ActivityDaily(days int) ([]int, error)
+	LogTail(n int) ([]string, error)
+	RecentActivity(limit int) ([]registry.Activity, error)
 	Dashboard() (Dashboard, error)
 	Index() (IndexResult, error)
 	Scan() (ScanResult, error)
@@ -91,6 +94,23 @@ func (a *App) Current() (registry.Project, bool) {
 	}
 	return p, true
 }
+
+// LogTail returns the last n lines of the rotating rivu.log for the
+// Logs screen (P5.10); a missing log is an empty tail, not an error.
+func (a *App) LogTail(n int) ([]string, error) {
+	dir, err := config.Dir()
+	if err != nil {
+		return nil, err
+	}
+	return logx.Tail(logx.Path(dir), n)
+}
+
+// RecentActivity is the newest activity_log rows joined to their
+// projects (P5.10/P5.11).
+func (a *App) RecentActivity(limit int) ([]registry.Activity, error) {
+	return a.Registry.RecentActivity(limit)
+}
+
 func (a *App) Scan() (ScanResult, error) {
 	return a.ScanContext(context.Background(), nil)
 }
