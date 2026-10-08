@@ -177,3 +177,56 @@ func TestDoctorFixFlow(t *testing.T) {
 		t.Errorf("stderr = %q, want nothing-to-fix notice", errOut)
 	}
 }
+
+// TestDoctorMissingProject (D-07): a registered folder that vanished
+// reports MISSING — not Health 0/100 — in text, in --json, and the
+// failing on-disk check marks with ✗ (error severity).
+func TestDoctorMissingProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+	ws := filepath.Join(home, "ws")
+	if err := os.MkdirAll(ws, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[workspace]\nroot = %q\n", ws)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) int {
+		t.Helper()
+		return Run("test", "dev", "unknown", args)
+	}
+	if got := run("source", "gone", "--no-git"); got != 0 {
+		t.Fatalf("source exit = %d", got)
+	}
+	out := captureStdout(t, func() {
+		if code := run("path", "gone"); code != 0 {
+			t.Errorf("path exit = %d", code)
+		}
+	})
+	if err := os.RemoveAll(strings.TrimSpace(out)); err != nil {
+		t.Fatal(err)
+	}
+
+	out = captureStdout(t, func() {
+		if code := run("doctor", "gone"); code != 0 {
+			t.Errorf("doctor exit = %d", code)
+		}
+	})
+	if !strings.Contains(out, "MISSING") || !strings.Contains(out, "✗") {
+		t.Errorf("text report = %q, want MISSING with the ✗ mark", out)
+	}
+	if strings.Contains(out, "Health 0/100") {
+		t.Errorf("must not fake a 0/100 score: %q", out)
+	}
+
+	out = captureStdout(t, func() {
+		if code := run("doctor", "gone", "--json"); code != 0 {
+			t.Errorf("doctor --json exit = %d", code)
+		}
+	})
+	if !strings.Contains(out, `"missing":true`) || !strings.Contains(out, `"slug":"gone"`) {
+		t.Errorf("json = %q, want missing:true for gone", out)
+	}
+}

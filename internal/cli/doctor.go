@@ -19,11 +19,14 @@ type doctorJSON struct {
 }
 
 type reportJSON struct {
-	Slug   string      `json:"slug"`
-	Name   string      `json:"name"`
-	Path   string      `json:"path"`
-	Score  int         `json:"score"`
-	Checks []checkJSON `json:"checks"`
+	Slug  string `json:"slug"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Score int    `json:"score"`
+	// Missing appears only when the project folder is gone (D-07):
+	// an additive signal, existing consumers keep working.
+	Missing bool        `json:"missing,omitempty"`
+	Checks  []checkJSON `json:"checks"`
 }
 
 type checkJSON struct {
@@ -92,13 +95,21 @@ first; --dry-run previews and --yes confirms (spec 4.4).`,
 				}
 			} else {
 				for _, r := range rs {
-					fmt.Printf("\n%s — Health %d/100\n", r.Project.Name, r.Score)
+					header := fmt.Sprintf("%s — Health %d/100", r.Project.Name, r.Score)
+					if r.Missing {
+						header = r.Project.Name + " — MISSING (folder not found)"
+					}
+					fmt.Printf("\n%s\n", header)
 					for _, chk := range r.Checks {
 						if chk.OK {
 							fmt.Printf("  ✓ %-14s %s\n", chk.Name, chk.Detail)
 							continue
 						}
-						fmt.Printf("  ! %-14s %s\n", chk.Name, chk.Finding)
+						mark := "!"
+						if chk.Severity == "error" {
+							mark = "✗"
+						}
+						fmt.Printf("  %s %-14s %s\n", mark, chk.Name, chk.Finding)
 						if chk.Remedy != "" {
 							fmt.Printf("      fix: %s\n", strings.ReplaceAll(chk.Remedy, "{slug}", r.Project.Slug))
 						}
@@ -155,7 +166,8 @@ func printDoctorJSON(w *os.File, rs []doctor.Report) error {
 	for _, r := range rs {
 		rj := reportJSON{
 			Slug: r.Project.Slug, Name: r.Project.Name, Path: r.Project.Path,
-			Score: r.Score, Checks: make([]checkJSON, 0, len(r.Checks)),
+			Score: r.Score, Missing: r.Missing,
+			Checks: make([]checkJSON, 0, len(r.Checks)),
 		}
 		for _, c := range r.Checks {
 			rj.Checks = append(rj.Checks, checkJSON{Name: c.Name, OK: c.OK, Weight: c.Weight, Detail: c.Detail})

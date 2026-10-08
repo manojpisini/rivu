@@ -867,7 +867,11 @@ func (r Root) doctorView() string {
 		return b.String()
 	}
 	for _, rep := range r.doctorRes {
-		b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score) + "  " + scoreBar(rep.Score) + "  " + strconv.Itoa(rep.Score) + "/100")
+		if rep.Missing {
+			b.WriteString("\n\n" + rep.Project.Name + "  " + r.styleErr.Render("[MISSING] ") + r.styleMuted.Render("folder not found — restore it or re-add the project"))
+		} else {
+			b.WriteString("\n\n" + rep.Project.Name + "  " + healthBadge(rep.Score) + "  " + scoreBar(rep.Score) + "  " + strconv.Itoa(rep.Score) + "/100")
+		}
 		if len(rep.Trend) >= 2 {
 			b.WriteString("  " + r.styleMuted.Render("trend ") + sparkline(rep.Trend))
 		}
@@ -878,7 +882,11 @@ func (r Root) doctorView() string {
 			}
 			line := r.styleMuted.Render(" ✓ ") + c.Name + "  " + text
 			if !c.OK {
-				line = r.styleErr.Render(" ! ") + c.Name + "  " + text
+				mark := " ! "
+				if c.Severity == "error" {
+					mark = " ✗ "
+				}
+				line = r.styleErr.Render(mark) + c.Name + "  " + text
 			}
 			if r.width > 0 {
 				line = shorten(line, max(1, r.width-2))

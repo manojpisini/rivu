@@ -134,3 +134,44 @@ func TestSubScreenSwallowsForeignKeys(t *testing.T) {
 		t.Fatal("foreign keys must not launch commands")
 	}
 }
+
+// TestDoctorViewMissingAndSeverity (D-07, D-04): a vanished folder
+// shows [MISSING] instead of a score bar, error-severity findings
+// mark with ✗, warnings keep !.
+func TestDoctorViewMissingAndSeverity(t *testing.T) {
+	r, _ := rootOf(t)
+	reports := []doctor.Report{
+		{
+			Project: registry.Project{Name: "gone", Slug: "gone"},
+			Missing: true,
+			Checks: []doctor.Check{
+				{Name: "On disk", Severity: "error", OK: false,
+					Finding: "project folder missing on disk",
+					Remedy:  "restore the folder, or re-add the project after moving it back"},
+			},
+		},
+		{
+			Project: registry.Project{Name: "demo", Slug: "demo"},
+			Score:   72,
+			Checks: []doctor.Check{
+				{Name: "CI", Severity: "warn", OK: false,
+					Finding: "no workflow under .github/workflows",
+					Remedy:  "add a workflow under .github/workflows"},
+			},
+		},
+	}
+	r, _ = upd(t, r, doctorDoneMsg{reports: reports, q: ""})
+	v := r.View()
+	if !strings.Contains(v, "[MISSING]") || !strings.Contains(v, "folder not found") {
+		t.Errorf("missing report must announce itself: %q", v)
+	}
+	if strings.Contains(v, "0/100") {
+		t.Errorf("missing project must not show a 0/100 score: %q", v)
+	}
+	if !strings.Contains(v, "✗") || !strings.Contains(v, "project folder missing on disk") {
+		t.Errorf("error-severity finding must mark with ✗: %q", v)
+	}
+	if !strings.Contains(v, "72/100") || !strings.Contains(v, "! CI") {
+		t.Errorf("healthy project renders normally with a warn mark: %q", v)
+	}
+}
