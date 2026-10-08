@@ -15,10 +15,11 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func fixture(t *testing.T) registry.Project {
 	t.Helper()
 	root := t.TempDir()
-	for _, f := range []string{"main.go", "README.md"} {
-		if err := os.WriteFile(filepath.Join(root, f), []byte("package x\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# Golden\n\nA tiny fixture project used to pin PROJECT_MAP.md.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package x\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
 	for _, d := range []string{"cmd", ".git", "scratch"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0755); err != nil {
@@ -180,5 +181,125 @@ func TestDiffMarksChangedLines(t *testing.T) {
 	}
 	if got := Diff("same\n", "same\n"); len(got) != 1 || got[0] != "  same" {
 		t.Fatalf("Diff(identical) = %#v, want context only", got)
+	}
+}
+
+// section returns the body between two `## ` headers of a PROJECT_MAP.
+func section(t *testing.T, body, header string) string {
+	t.Helper()
+	i := strings.Index(body, header)
+	if i < 0 {
+		t.Fatalf("no %q section in:\n%s", header, body)
+	}
+	rest := body[i+len(header):]
+	if j := strings.Index(rest, "\n## "); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimSpace(rest)
+}
+
+func TestReadmePurpose(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"no readme", "", ""},
+		{"heading badge paragraph", "# Tool\n\n[![CI](https://img.shields.io/x)](https://ci)\n\nShip things.\n\nMore below.\n", "Ship things."},
+		{"plain first paragraph", "line one\nline two\n\nline three\n", "line one line two"},
+		{"heading only", "# Tool\n\n", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if tc.body != "" {
+				if err := os.WriteFile(filepath.Join(root, "README.md"), []byte(tc.body), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := readmePurpose(root); got != tc.want {
+				t.Errorf("purpose = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	// Truncation keeps the purpose inside the ceiling and marks the cut.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte(strings.Repeat("word ", 80)+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readmePurpose(root); !strings.HasSuffix(got, "…") || len([]rune(got)) > 241 {
+		t.Errorf("truncated purpose = %q", got)
+	}
+}
+
+// TestContentRanksAndExtracts (M-02): entrypoints/manifests/CI/build/
+// tests rank first, README supplies the purpose, go.mod the module,
+// and package.json scripts plus Makefile targets are extracted.
+func TestContentRanksAndExtracts(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, path), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("README.md", "# Tool\n\n[![CI](https://img.shields.io/x)](https://ci)\n\nShip things without melting down.\n\nMore below.\n")
+	write("main.py", "print(1)\n")
+	write("notes.md", "scratch\n")
+	write("go.mod", "module example.com/shipper\ngo 1.24\n")
+	write("package.json", `{"scripts":{"build":"tsc","test":"vitest"}}`+"\n")
+	write("Makefile", ".PHONY: lint\nlint:\n\tgo vet ./...\nrelease: build\n\techo hi\nVAR := 1\n")
+	write("cmd/shipper/main.go", "package main\n")
+	write("scripts/deploy.sh", "echo hi\n")
+	write(".github/workflows/ci.yml", "name: ci\n")
+	write("tests/test_x.py", "def test_x(): pass\n")
+	p := registry.Project{Name: "Shipper", Slug: "shipper", Path: root, Stack: []string{"python"}}
+	agents, body := Content(p, nil)
+
+	wantPurpose := "Ship things without melting down."
+	if got := section(t, body, "## Purpose"); got != wantPurpose {
+		t.Errorf("Purpose = %q, want %q", got, wantPurpose)
+	}
+	if !strings.Contains(agents, "## Project purpose\n"+wantPurpose+"\n") {
+		t.Errorf("AGENTS purpose not taken from README:\n%s", agents)
+	}
+	if stack := section(t, body, "## Stack"); !strings.Contains(stack, "module `example.com/shipper`") {
+		t.Errorf("Stack = %q, want go.mod module", stack)
+	}
+	scripts := section(t, body, "## Scripts and targets")
+	for _, want := range []string{"npm run build", "npm run test", "make lint", "make release"} {
+		if !strings.Contains(scripts, want) {
+			t.Errorf("scripts = %q, missing %q", scripts, want)
+		}
+	}
+	if strings.Contains(scripts, "PHONY") || strings.Contains(scripts, "VAR") {
+		t.Errorf("scripts leaked make syntax: %q", scripts)
+	}
+	files := section(t, body, "## Important files")
+	prev := -1
+	for _, want := range []string{"`cmd/shipper/main.go`", "`main.py`", "`go.mod`", "`package.json`", "`Makefile`", "`README.md`", "`notes.md`"} {
+		i := strings.Index(files, want)
+		if i < 0 {
+			t.Fatalf("files missing %s:\n%s", want, files)
+		}
+		if i < prev {
+			t.Errorf("%s out of rank order:\n%s", want, files)
+		}
+		prev = i
+	}
+	dirs := section(t, body, "## Important directories")
+	prev = -1
+	for _, want := range []string{"`cmd/`", "`.github/`", "`scripts/`", "`tests/`"} {
+		i := strings.Index(dirs, want)
+		if i < 0 {
+			t.Fatalf("dirs missing %s:\n%s", want, dirs)
+		}
+		if i < prev {
+			t.Errorf("%s out of rank order:\n%s", want, dirs)
+		}
+		prev = i
 	}
 }
