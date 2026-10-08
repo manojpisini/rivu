@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -87,6 +88,8 @@ var markers = []marker{
 	{"Dockerfile", "", "docker", false},
 	{"bun.lockb", "", "bun", false},
 	{"pnpm-lock.yaml", "", "pnpm", false},
+	{"package-lock.json", "", "npm", false},
+	{"yarn.lock", "", "yarn", false},
 }
 
 func markerPresent(root, name string) bool {
@@ -135,7 +138,60 @@ func classify(path string) (string, []string, int, bool) {
 	if nonEmptyDir(filepath.Join(path, "src")) {
 		score++
 	}
+	// S-04: refine node projects — TypeScript vs JavaScript by
+	// tsconfig.json or a typescript dependency, and the framework by
+	// package.json deps (framework token leads the stack).
+	if lang == "JavaScript/TypeScript" && exists(filepath.Join(path, "package.json")) {
+		lang = "JavaScript"
+		info := readNodeInfo(path)
+		if info.typescript || exists(filepath.Join(path, "tsconfig.json")) {
+			lang = "TypeScript"
+		}
+		if info.framework != "" && !slices.Contains(stack, info.framework) {
+			stack = append([]string{info.framework}, stack...)
+		}
+	}
 	return lang, stack, score, strong
+}
+
+// nodeFrameworks are matched against package.json dependencies in
+// priority order: app frameworks first, build tools last, so an Astro
+// project that also vendors vite stays "astro".
+var nodeFrameworks = []string{"astro", "next", "svelte", "react", "vue", "vite"}
+
+type nodeInfo struct {
+	framework  string
+	typescript bool
+}
+
+func readNodeInfo(root string) nodeInfo {
+	var ni nodeInfo
+	b, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return ni
+	}
+	var pj struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if json.Unmarshal(b, &pj) != nil {
+		return ni
+	}
+	best := -1
+	for _, deps := range []map[string]string{pj.Dependencies, pj.DevDependencies} {
+		for name := range deps {
+			if name == "typescript" {
+				ni.typescript = true
+			}
+			if i := slices.Index(nodeFrameworks, name); i >= 0 && (best < 0 || i < best) {
+				best = i
+			}
+		}
+	}
+	if best >= 0 {
+		ni.framework = nodeFrameworks[best]
+	}
+	return ni
 }
 
 func nonEmptyDir(p string) bool {

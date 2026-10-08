@@ -45,7 +45,7 @@ func TestClassifyMarkers(t *testing.T) {
 		{[]string{"Cargo.toml"}, "Rust", "rust", 3, true},
 		{[]string{"requirements.txt"}, "Python", "python", 3, true},
 		{[]string{"setup.py"}, "Python", "python", 3, true},
-		{[]string{"package.json"}, "JavaScript/TypeScript", "node", 3, true},
+		{[]string{"package.json"}, "JavaScript", "node", 3, true},
 		{[]string{"deno.json"}, "JavaScript/TypeScript", "deno", 3, true},
 		{[]string{"pom.xml"}, "Java", "java", 3, true},
 		{[]string{"build.gradle"}, "Java", "gradle", 3, true},
@@ -430,5 +430,62 @@ func TestScanContextProgressCountsDirs(t *testing.T) {
 		if counts[i] <= counts[i-1] {
 			t.Fatalf("progress must strictly increase: %v", counts)
 		}
+	}
+}
+
+// TestNodeEcosystemDetection (S-04): TypeScript vs JavaScript by
+// tsconfig.json or a typescript dependency, framework by package.json
+// deps (framework leads the stack), package manager by lockfile.
+func TestNodeEcosystemDetection(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		lang  string
+		stack []string // must all appear, in this relative order
+		front string   // optional: exact stack[0]
+	}{
+		{"tsconfig", map[string]string{"package.json": `{"name":"x"}`, "tsconfig.json": "{}"}, "TypeScript", []string{"node"}, ""},
+		{"plain js", map[string]string{"package.json": `{"name":"x"}`}, "JavaScript", []string{"node"}, ""},
+		{"ts dependency", map[string]string{"package.json": `{"devDependencies":{"typescript":"^5"}}`}, "TypeScript", []string{"node"}, ""},
+		{"npm lockfile", map[string]string{"package.json": "{}", "package-lock.json": "{}"}, "JavaScript", []string{"node", "npm"}, ""},
+		{"yarn lockfile", map[string]string{"package.json": "{}", "yarn.lock": "x"}, "JavaScript", []string{"node", "yarn"}, ""},
+		{"pnpm lockfile", map[string]string{"package.json": "{}", "pnpm-lock.yaml": "x"}, "JavaScript", []string{"node", "pnpm"}, ""},
+		{"bun lockfile", map[string]string{"package.json": "{}", "bun.lockb": "x"}, "JavaScript", []string{"node", "bun"}, ""},
+		{"next", map[string]string{"package.json": `{"dependencies":{"next":"14","react":"18"}}`}, "JavaScript", []string{"node"}, "next"},
+		{"astro leads vite", map[string]string{"package.json": `{"dependencies":{"astro":"3","vite":"5"}}`, "bun.lockb": "x"}, "JavaScript", []string{"node", "bun"}, "astro"},
+		{"vite only", map[string]string{"package.json": `{"devDependencies":{"vite":"5"}}`}, "JavaScript", []string{"node"}, "vite"},
+		{"deno untouched", map[string]string{"deno.json": "{}"}, "JavaScript/TypeScript", []string{"deno"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			for f, body := range tc.files {
+				p := filepath.Join(d, f)
+				if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lang, stack, _, _ := classify(d)
+			if lang != tc.lang {
+				t.Errorf("lang = %q, want %q", lang, tc.lang)
+			}
+			last := -1
+			for _, want := range tc.stack {
+				i := slices.Index(stack, want)
+				if i < 0 {
+					t.Fatalf("stack %v missing %q", stack, want)
+				}
+				if i < last {
+					t.Errorf("stack %v: %q out of order", stack, want)
+				}
+				last = i
+			}
+			if tc.front != "" && (len(stack) == 0 || stack[0] != tc.front) {
+				t.Errorf("stack = %v, want %q leading", stack, tc.front)
+			}
+		})
 	}
 }
