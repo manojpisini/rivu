@@ -11,12 +11,22 @@ import (
 	"github.com/manojpisini/rivu/internal/registry"
 )
 
+// Check is one health check. Detail describes the passing state (and
+// is what --json reports). When a check fails, Finding says exactly
+// what is wrong and Remedy says what to do about it (D-03, P6.03).
+// Remedy may contain {slug}, filled in by the caller; Fixable names
+// the safe `rivu doctor --fix` id when a machine can apply the
+// remedy without a product decision.
 type Check struct {
-	Name   string
-	OK     bool
-	Weight int
-	Detail string
+	Name    string
+	OK      bool
+	Weight  int
+	Detail  string
+	Finding string
+	Remedy  string
+	Fixable string
 }
+
 type Report struct {
 	Project registry.Project
 	Checks  []Check
@@ -55,10 +65,13 @@ var testSkipDirs = map[string]bool{
 // file patterns, or an ecosystem runner configured — not the old
 // `tests/` OR `internal/` proxy.
 func testsCheck(root string) Check {
-	if hasTests(root) {
-		return Check{"Tests", true, 10, "tests detected"}
+	c := Check{
+		Name: "Tests", Weight: 10, Detail: "tests detected",
+		Finding: "no tests detected",
+		Remedy:  "add tests (a tests/ folder, *_test.go files, or a configured test script)",
 	}
-	return Check{"Tests", false, 10, "no tests detected"}
+	c.OK = hasTests(root)
+	return c
 }
 
 func hasTests(root string) bool {
@@ -139,14 +152,15 @@ func pkgJSONHasTestScript(root string) bool {
 var depManifests = []struct {
 	manifest string
 	locks    []string
+	tidy     string // the safe command that produces the lockfile
 }{
-	{"go.mod", []string{"go.sum"}},
-	{"package.json", []string{"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb"}},
-	{"Cargo.toml", []string{"Cargo.lock"}},
-	{"pyproject.toml", []string{"poetry.lock", "uv.lock"}},
-	{"Pipfile", []string{"Pipfile.lock"}},
-	{"Gemfile", []string{"Gemfile.lock"}},
-	{"composer.json", []string{"composer.lock"}},
+	{"go.mod", []string{"go.sum"}, "run `go mod tidy`"},
+	{"package.json", []string{"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb"}, "run `npm install` (or yarn/pnpm install)"},
+	{"Cargo.toml", []string{"Cargo.lock"}, "run `cargo generate-lockfile`"},
+	{"pyproject.toml", []string{"poetry.lock", "uv.lock"}, "run `poetry lock` or `uv lock`"},
+	{"Pipfile", []string{"Pipfile.lock"}, "run `pipenv lock`"},
+	{"Gemfile", []string{"Gemfile.lock"}, "run `bundle install`"},
+	{"composer.json", []string{"composer.lock"}, "run `composer update --lock`"},
 }
 
 // depCheck is the D-01 real dependency check: every known manifest
@@ -167,29 +181,86 @@ func depCheck(root string) Check {
 			}
 		}
 		if !locked {
-			return Check{"Dependencies", false, 5, "manifest without lockfile: " + d.manifest}
+			return Check{
+				Name: "Dependencies", Weight: 5,
+				Detail:  "manifest without lockfile: " + d.manifest,
+				OK:      false,
+				Finding: "manifest without lockfile: " + d.manifest,
+				Remedy:  d.tidy,
+			}
 		}
 	}
 	if !tracked {
-		return Check{"Dependencies", true, 5, "no dependency manifest"}
+		return Check{
+			Name: "Dependencies", Weight: 5, OK: true,
+			Detail: "no dependency manifest",
+		}
 	}
-	return Check{"Dependencies", true, 5, "manifest and lockfile present"}
+	return Check{
+		Name: "Dependencies", Weight: 5, OK: true,
+		Detail: "manifest and lockfile present",
+	}
 }
 
 // Run scores a project. scaffoldMark is the bridge tool's marker file name
 // ("" disables the exclusivity check); when the marker and .git coexist but
 // the Bank claims rivu ran init, that is a possible double-init (spec 1.7).
 func Run(p registry.Project, scaffoldMark string) Report {
-	checks := []Check{{"README", ex(filepath.Join(p.Path, "README.md")) || ex(filepath.Join(p.Path, "README")), 20, "project documentation"}, {"Git", ex(filepath.Join(p.Path, ".git")), 15, "version control"}, {"Bank", ex(filepath.Join(p.Path, ".metadata", "project.toml")), 15, "Rivu metadata"}, {"Map", ex(filepath.Join(p.Path, ".metadata", "agent", "PROJECT_MAP.md")), 15, "agent-readable map"}, testsCheck(p.Path), {"CI", ex(filepath.Join(p.Path, ".github", "workflows")), 10, "continuous integration"}, {"License", ex(filepath.Join(p.Path, "LICENSE")) || ex(filepath.Join(p.Path, "LICENSE.md")), 10, "license file"}, depCheck(p.Path)}
+	root := p.Path
+	checks := []Check{
+		{
+			Name: "README", Weight: 20, Detail: "project documentation",
+			OK:      ex(filepath.Join(root, "README.md")) || ex(filepath.Join(root, "README")),
+			Finding: "README.md missing",
+			Remedy:  "run `rivu doctor {slug} --fix readme --yes`",
+			Fixable: "readme",
+		},
+		{
+			Name: "Git", Weight: 15, Detail: "version control",
+			OK:      ex(filepath.Join(root, ".git")),
+			Finding: ".git missing — not a repository",
+			Remedy:  "run `git init` in the project folder",
+		},
+		{
+			Name: "Bank", Weight: 15, Detail: "Rivu metadata",
+			OK:      ex(filepath.Join(root, ".metadata", "project.toml")),
+			Finding: ".metadata/project.toml missing",
+			Remedy:  "run `rivu agent sync {slug}` to rebuild Bank and Map",
+			Fixable: "map",
+		},
+		{
+			Name: "Map", Weight: 15, Detail: "agent-readable map",
+			OK:      ex(filepath.Join(root, ".metadata", "agent", "PROJECT_MAP.md")),
+			Finding: ".metadata/agent/PROJECT_MAP.md missing",
+			Remedy:  "run `rivu agent sync {slug}` to rebuild Bank and Map",
+			Fixable: "map",
+		},
+		testsCheck(root),
+		{
+			Name: "CI", Weight: 10, Detail: "continuous integration",
+			OK:      ex(filepath.Join(root, ".github", "workflows")),
+			Finding: "no workflow under .github/workflows",
+			Remedy:  "add a workflow under .github/workflows",
+		},
+		{
+			Name: "License", Weight: 10, Detail: "license file",
+			OK:      ex(filepath.Join(root, "LICENSE")) || ex(filepath.Join(root, "LICENSE.md")),
+			Finding: "LICENSE missing",
+			Remedy:  "add a LICENSE file",
+		},
+		depCheck(root),
+	}
 	if scaffoldMark != "" {
-		doubleInit := ex(filepath.Join(p.Path, ".git")) &&
-			ex(filepath.Join(p.Path, scaffoldMark)) &&
-			gitInitOwner(p.Path) == "rivu"
+		doubleInit := ex(filepath.Join(root, ".git")) &&
+			ex(filepath.Join(root, scaffoldMark)) &&
+			gitInitOwner(root) == "rivu"
 		checks = append(checks, Check{
-			Name:   "Git exclusivity",
-			OK:     !doubleInit,
-			Weight: 0, // informational: never changes the score
-			Detail: "possible double-init, verify history (.git + bridge marker + git_init_owner=rivu)",
+			Name:    "Git exclusivity",
+			OK:      !doubleInit,
+			Weight:  0, // informational: never changes the score
+			Detail:  "single git owner",
+			Finding: "possible double-init, verify history (.git + bridge marker + git_init_owner=rivu)",
+			Remedy:  "verify history (.git + bridge marker + git_init_owner=rivu)",
 		})
 	}
 	score := 0

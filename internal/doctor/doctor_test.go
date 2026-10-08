@@ -120,6 +120,34 @@ func TestTestDetection(t *testing.T) {
 	}
 }
 
+// TestFailingChecksCarryFindingAndRemedy (D-03): every failing check
+// says what is wrong and what to do; passing checks keep their label.
+func TestFailingChecksCarryFindingAndRemedy(t *testing.T) {
+	r := Run(registry.Project{Path: t.TempDir()}, "")
+	for _, c := range r.Checks {
+		if c.OK {
+			if c.Finding != "" {
+				t.Errorf("%s passed but has finding %q", c.Name, c.Finding)
+			}
+			continue
+		}
+		if c.Finding == "" {
+			t.Errorf("%s failed without a finding (detail %q)", c.Name, c.Detail)
+		}
+		if c.Remedy == "" {
+			t.Errorf("%s failed without a remedy", c.Name)
+		}
+	}
+	// A concrete example: README failing names the file and the fix.
+	for _, c := range r.Checks {
+		if c.Name == "README" && !c.OK {
+			if c.Finding != "README.md missing" || c.Fixable != "readme" {
+				t.Errorf("README = %+v, want finding README.md missing and fixable readme", c)
+			}
+		}
+	}
+}
+
 // TestDependencyCheck (D-01): every known manifest must ship a
 // lockfile; projects with no tracked manifest pass vacuously.
 func TestDependencyCheck(t *testing.T) {

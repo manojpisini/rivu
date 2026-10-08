@@ -34,17 +34,22 @@ type checkJSON struct {
 }
 
 func doctorCmd() *cobra.Command {
-	var all, asJSON bool
+	var all, asJSON, dry, yes bool
 	var minScore int
+	var fixes []string
 	c := &cobra.Command{
 		Use:   "doctor [project]",
-		Args:  doctorArgs(&all, &minScore),
+		Args:  doctorArgs(&all, &minScore, &fixes),
 		Short: "Run project health checks",
 		Long: `Run health checks for a project, or for every project with no
 argument or --all.
 
 --json prints {"schema":1,"reports":[...]}. --min-score N exits 5 when
-any report scores below N, so CI can gate on health.`,
+any report scores below N, so CI can gate on health.
+
+--fix ID (readme, map) applies the safe remedies: creating a missing
+README and rebuilding machine-owned Bank/Map files. It shows the plan
+first; --dry-run previews and --yes confirms (spec 4.4).`,
 		RunE: withApp(func(a *service.App, args []string) error {
 			q := ""
 			if len(args) > 0 {
@@ -54,6 +59,33 @@ any report scores below N, so CI can gate on health.`,
 			if e != nil {
 				return e
 			}
+			if len(fixes) > 0 {
+				plan := service.DoctorFixPlan(rs, fixes)
+				if len(plan) == 0 {
+					fmt.Fprintln(os.Stderr, "nothing to fix — every requested remedy already holds")
+					return nil
+				}
+				fmt.Println("Safe fixes (create-if-missing only, project folders never touched):")
+				for _, l := range plan {
+					fmt.Println("  " + l)
+				}
+				if dry {
+					return nil
+				}
+				if err := requireYes(dry, yes); err != nil {
+					return err
+				}
+				applied, err := a.ApplyDoctorFixes(rs, fixes)
+				if applied > 0 {
+					warnf("applied %d fix(es)", applied)
+				}
+				if err != nil {
+					return err
+				}
+				if rs, e = a.Doctor(q); e != nil {
+					return e
+				}
+			}
 			if asJSON {
 				if err := printDoctorJSON(os.Stdout, rs); err != nil {
 					return err
@@ -62,11 +94,14 @@ any report scores below N, so CI can gate on health.`,
 				for _, r := range rs {
 					fmt.Printf("\n%s — Health %d/100\n", r.Project.Name, r.Score)
 					for _, chk := range r.Checks {
-						mark := "✓"
-						if !chk.OK {
-							mark = "!"
+						if chk.OK {
+							fmt.Printf("  ✓ %-14s %s\n", chk.Name, chk.Detail)
+							continue
 						}
-						fmt.Printf("  %s %-14s %s\n", mark, chk.Name, chk.Detail)
+						fmt.Printf("  ! %-14s %s\n", chk.Name, chk.Finding)
+						if chk.Remedy != "" {
+							fmt.Printf("      fix: %s\n", strings.ReplaceAll(chk.Remedy, "{slug}", r.Project.Slug))
+						}
 					}
 				}
 			}
@@ -88,18 +123,28 @@ any report scores below N, so CI can gate on health.`,
 	c.Flags().BoolVar(&all, "all", false, "Check every project (same as omitting the argument)")
 	c.Flags().BoolVar(&asJSON, "json", false, "Print JSON with schema 1")
 	c.Flags().IntVar(&minScore, "min-score", 0, "Exit 5 when any score is below this (0 disables)")
+	c.Flags().StringSliceVar(&fixes, "fix", nil, "Apply safe fixes: readme, map")
+	c.Flags().BoolVar(&dry, "dry-run", false, "Preview the fix plan without applying")
+	c.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm applying the fix plan")
 	return c
 }
 
 // doctorArgs validates flag combinations during the args stage, so
 // bad values exit 2 (usage) before any checks run.
-func doctorArgs(all *bool, minScore *int) cobra.PositionalArgs {
+func doctorArgs(all *bool, minScore *int, fixes *[]string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if *all && len(args) > 0 {
 			return fmt.Errorf("give either a project or --all, not both")
 		}
 		if *minScore < 0 || *minScore > 100 {
 			return fmt.Errorf("--min-score must be between 0 and 100")
+		}
+		for _, id := range *fixes {
+			switch id {
+			case "readme", "map":
+			default:
+				return fmt.Errorf("unknown --fix id %q (want readme or map)", id)
+			}
 		}
 		return nil
 	}

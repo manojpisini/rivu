@@ -88,3 +88,92 @@ func TestDoctorFlags(t *testing.T) {
 		t.Errorf("doctor --all --json = %q, want checky", out)
 	}
 }
+
+// TestDoctorFixFlow (P6.03): --fix prints the plan, --dry-run stops
+// there, applying needs --yes (exit 4), and only missing files are
+// created; a bogus --fix id is a usage error.
+func TestDoctorFixFlow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+	ws := filepath.Join(home, "ws")
+	if err := os.MkdirAll(ws, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := fmt.Sprintf("[workspace]\nroot = %q\n", ws)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) int {
+		t.Helper()
+		return Run("test", "dev", "unknown", args)
+	}
+	if got := run("source", "fixme", "--no-git"); got != 0 {
+		t.Fatalf("source exit = %d", got)
+	}
+	out := captureStdout(t, func() {
+		if code := run("path", "fixme"); code != 0 {
+			t.Errorf("path exit = %d", code)
+		}
+	})
+	path := strings.TrimSpace(out)
+	readme := filepath.Join(path, "README.md")
+	if _, err := os.Stat(readme); err == nil {
+		t.Fatal("source must not create README.md here")
+	}
+
+	// Unknown id: usage error before anything runs.
+	if got := run("doctor", "fixme", "--fix", "license"); got != 2 {
+		t.Errorf("bogus --fix exit = %d, want 2", got)
+	}
+
+	// --dry-run prints the plan and changes nothing.
+	out = captureStdout(t, func() {
+		if code := run("doctor", "fixme", "--fix", "readme", "--dry-run"); code != 0 {
+			t.Errorf("dry-run exit = %d", code)
+		}
+	})
+	if !strings.Contains(out, "create README.md") || !strings.Contains(out, "fixme:") {
+		t.Errorf("dry-run plan = %q, want the readme line", out)
+	}
+	if _, err := os.Stat(readme); err == nil {
+		t.Error("dry-run must not create README.md")
+	}
+
+	// Without --yes the apply is refused (exit 4).
+	if got := run("doctor", "fixme", "--fix", "readme"); got != 4 {
+		t.Errorf("no --yes exit = %d, want 4", got)
+	}
+	if _, err := os.Stat(readme); err == nil {
+		t.Error("refused apply must not create README.md")
+	}
+
+	// --yes applies, reports it on stderr, and the re-run report shows
+	// the README check passing.
+	errOut := captureStderr(t, func() {
+		out = captureStdout(t, func() {
+			if code := run("doctor", "fixme", "--fix", "readme", "--yes"); code != 0 {
+				t.Errorf("--yes exit = %d", code)
+			}
+		})
+	})
+	if !strings.Contains(errOut, "applied 1 fix(es)") {
+		t.Errorf("stderr = %q, want the applied count", errOut)
+	}
+	if _, err := os.Stat(readme); err != nil {
+		t.Fatalf("README.md missing after --yes: %v", err)
+	}
+	if !strings.Contains(out, "Health") {
+		t.Errorf("report after fix = %q, want the health report", out)
+	}
+
+	// Second run: nothing left to fix.
+	errOut = captureStderr(t, func() {
+		if code := run("doctor", "fixme", "--fix", "readme", "--yes"); code != 0 {
+			t.Errorf("second --fix exit = %d", code)
+		}
+	})
+	if !strings.Contains(errOut, "nothing to fix") {
+		t.Errorf("stderr = %q, want nothing-to-fix notice", errOut)
+	}
+}

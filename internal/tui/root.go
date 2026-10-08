@@ -851,33 +851,9 @@ func (r Root) errExpandView() string {
 	return r.styleErrBox.Render(b.String())
 }
 
-// doctorRemedy gives a failing check a concrete next step in the
-// Health screen (P4.13); "" means the check needs no action.
-func doctorRemedy(c doctor.Check, slug string) string {
-	switch c.Name {
-	case "README":
-		return "create README.md in the project folder"
-	case "Git":
-		return "run `git init` in the project folder"
-	case "Bank":
-		return "run `rivu doctor " + slug + "` to audit"
-	case "Map":
-		return "run `rivu agent sync " + slug + "`"
-	case "Tests":
-		return "add a tests/ folder"
-	case "CI":
-		return "add a workflow under .github/workflows"
-	case "License":
-		return "add a LICENSE file"
-	case "Git exclusivity":
-		return "verify history (.git + bridge marker + git_init_owner=rivu)"
-	}
-	return ""
-}
-
 // doctorView renders health-check reports (spec P4.13): score bar,
-// every check as a finding (CLI parity with `rivu doctor`), and a fix
-// line under each failing check.
+// every check as a finding — the failure text from the doctor package
+// plus its remedy (D-03), a `fix:` line under each failing check.
 func (r Root) doctorView() string {
 	var b strings.Builder
 	title := "HEALTH — all projects"
@@ -896,18 +872,21 @@ func (r Root) doctorView() string {
 			b.WriteString("  " + r.styleMuted.Render("trend ") + sparkline(rep.Trend))
 		}
 		for _, c := range rep.Checks {
-			line := r.styleMuted.Render(" ✓ ") + c.Name + "  " + c.Detail
+			text := c.Detail
 			if !c.OK {
-				line = r.styleErr.Render(" ! ") + c.Name + "  " + c.Detail
+				text = c.Finding
+			}
+			line := r.styleMuted.Render(" ✓ ") + c.Name + "  " + text
+			if !c.OK {
+				line = r.styleErr.Render(" ! ") + c.Name + "  " + text
 			}
 			if r.width > 0 {
 				line = shorten(line, max(1, r.width-2))
 			}
 			b.WriteString("\n" + line)
-			if !c.OK {
-				if fix := doctorRemedy(c, rep.Project.Slug); fix != "" {
-					b.WriteString("\n" + r.styleMuted.Render("   fix: "+fix))
-				}
+			if !c.OK && c.Remedy != "" {
+				fix := strings.ReplaceAll(c.Remedy, "{slug}", rep.Project.Slug)
+				b.WriteString("\n" + r.styleMuted.Render("   fix: "+fix))
 			}
 		}
 	}

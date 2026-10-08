@@ -57,7 +57,9 @@ func TestDoctorDoneOpensHealthScreen(t *testing.T) {
 			Trend:   []int{30, 50, 70},
 			Checks: []doctor.Check{
 				{Name: "README", OK: true, Detail: "project documentation"},
-				{Name: "CI", OK: false, Detail: "continuous integration"},
+				{Name: "CI", OK: false, Detail: "continuous integration",
+					Finding: "no workflow under .github/workflows",
+					Remedy:  "add a workflow under .github/workflows"},
 			},
 		},
 	}
@@ -72,13 +74,13 @@ func TestDoctorDoneOpensHealthScreen(t *testing.T) {
 		t.Errorf("progress status must clear, got %q", r.dashboard.Status)
 	}
 	v := r.View()
-	for _, want := range []string{"HEALTH — demo", "demo", "72", "CI", "continuous integration"} {
+	for _, want := range []string{"HEALTH — demo", "demo", "72", "CI", "no workflow under .github/workflows"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("health view missing %q in %q", want, v)
 		}
 	}
-	// every check is a finding (P4.13): pass lines stay, failures
-	// carry a fix, and the score is drawn as a bar
+	// every check is a finding (D-03): pass lines show the pass label,
+	// failures show the finding plus a fix, and the score is a bar
 	if !strings.Contains(v, "project documentation") {
 		t.Errorf("passing check must be listed as a finding: %q", v)
 	}
