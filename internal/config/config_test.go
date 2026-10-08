@@ -176,6 +176,34 @@ func TestPartialFileKeepsDefaults(t *testing.T) {
 	}
 }
 
+// TestLoadFileTableReplacesDefaults: a map table the file writes wins
+// entirely — a hand-written partial health.weights summing to 100 must
+// load as exactly those keys, or service.Open rejects the file at
+// launch with a misleading sum.
+func TestLoadFileTableReplacesDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RIVU_HOME", home)
+	t.Setenv("RIVU_CONFIG", "")
+
+	body := "[editors]\nper_language = { python = \"vim\" }\n[health]\nweights = { readme = 100 }\n"
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Health.Weights) != 1 || cfg.Health.Weights["readme"] != 100 {
+		t.Errorf("weights = %v, want exactly {readme 100} from the file", cfg.Health.Weights)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("file-valid weights rejected: %v", err)
+	}
+	if len(cfg.Editors.PerLanguage) != 1 || cfg.Editors.PerLanguage["python"] != "vim" {
+		t.Errorf("per_language = %v, want exactly {python vim} from the file", cfg.Editors.PerLanguage)
+	}
+}
+
 func TestValidateWeightsSum(t *testing.T) {
 	c := Default()
 	c.Health.Weights["readme"] = 50

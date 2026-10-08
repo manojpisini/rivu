@@ -211,9 +211,22 @@ func Load() (Config, []string, error) {
 	if err != nil {
 		return c, nil, err
 	}
+	// Map tables in the file are the whole truth: nil the defaults so
+	// a partial [health.weights] or [editors.per_language] replaces
+	// instead of merging (a merge can sum weights past 100 and make
+	// Validate reject a perfectly valid file). Tables the file omits
+	// get their defaults back below.
+	perLang, weights := c.Editors.PerLanguage, c.Health.Weights
+	c.Editors.PerLanguage, c.Health.Weights = nil, nil
 	md, err := toml.DecodeFile(p, &c)
 	if err != nil {
 		return c, nil, fmt.Errorf("decode config: %w", err)
+	}
+	if !md.IsDefined("editors", "per_language") {
+		c.Editors.PerLanguage = perLang
+	}
+	if !md.IsDefined("health", "weights") {
+		c.Health.Weights = weights
 	}
 	var warnings []string
 	for _, key := range md.Undecoded() {

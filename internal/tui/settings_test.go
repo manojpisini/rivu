@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -314,5 +315,103 @@ func TestSettingsResetSection(t *testing.T) {
 	}
 	if _, err := os.Stat(configPath(t)); err == nil {
 		t.Fatal("reset must not write config.toml on its own")
+	}
+}
+
+// TestSettingsRoundTripConfigFile: what Load() reads renders on the
+// screen; an edit + ctrl+s survives a fresh Load; every field the edit
+// did not touch comes back unchanged — Settings never drifts from the
+// file a person could hand-edit (P5.09).
+func TestSettingsRoundTripConfigFile(t *testing.T) {
+	t.Setenv("RIVU_HOME", t.TempDir())
+	seed := config.Default()
+	seed.Workspace.Root = "/ws/round"
+	seed.Workspace.SecondaryRoots = []string{"/extra/a", "/extra/b"}
+	seed.Workspace.AutoRescan = false
+	seed.Editors.Default = "zed"
+	seed.Editors.PerLanguage = map[string]string{"go": "code"}
+	seed.Flow.StaleThresholdDays = 45
+	seed.Flow.SourceSLADays = 7
+	seed.Bridge.Enabled = true
+	seed.Bridge.ScaffoldMark = ".lode"
+	seed.Templates.Default = "go-cli"
+	seed.Health.Weights = map[string]int{"readme": 40, "git": 30, "bank": 30}
+	seed.Scanner.Ignore = []string{"tmp", "cache"}
+	seed.Scanner.MaxDepth = 3
+	seed.Appearance.Density = "compact"
+	seed.Keybindings.Profile = "vim"
+	seed.Data.SnapshotRetentionDays = 30
+	if err := config.Save(seed); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+	loaded, _, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// The screen renders what Load produced.
+	m, f := scanFixture(t)
+	m, cmd := updateC(t, m, runeKey("S"))
+	r := NewRoot(f, loaded)
+	r.dashboard = m
+	r, _ = upd(t, r, tea.WindowSizeMsg{Width: 100, Height: 30})
+	r, _ = upd(t, r, cmd())
+	if r.screen != ScreenSettings {
+		t.Fatalf("screen = %v, want settings", r.screen)
+	}
+	v := r.View()
+	for _, want := range []string{
+		config.Expand("/ws/round"), "zed", "vim", "custom", "enabled",
+		config.Expand("/extra/a") + ", " + config.Expand("/extra/b"),
+	} {
+		if !strings.Contains(v, want) {
+			t.Errorf("loaded value %q missing from the screen in %q", want, v)
+		}
+	}
+
+	// Edit workspace.root and save through the screen.
+	r, _ = upd(t, r, keyEnter())
+	r, _ = upd(t, r, keyEnter())
+	r = clearInput(t, r)
+	r, _ = upd(t, r, runeKey("/ws/round2"))
+	r, _ = upd(t, r, keyEnter())
+	r, toast := upd(t, r, keyCtrlS())
+	r, _ = upd(t, r, toast())
+	if len(r.toasts) != 1 || r.toasts[0].Level != "good" {
+		t.Fatalf("toasts = %+v, want a save notice", r.toasts)
+	}
+
+	again, _, err := config.Load()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if again.Workspace.Root != config.Expand("/ws/round2") {
+		t.Errorf("edited root = %q, want %q", again.Workspace.Root, config.Expand("/ws/round2"))
+	}
+	untouched := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"secondary roots", fmt.Sprint(again.Workspace.SecondaryRoots), fmt.Sprint([]string{config.Expand("/extra/a"), config.Expand("/extra/b")})},
+		{"auto rescan", again.Workspace.AutoRescan, false},
+		{"editor default", again.Editors.Default, "zed"},
+		{"per language", fmt.Sprint(again.Editors.PerLanguage), fmt.Sprint(map[string]string{"go": "code"})},
+		{"stale threshold", again.Flow.StaleThresholdDays, 45},
+		{"source sla", again.Flow.SourceSLADays, 7},
+		{"bridge enabled", again.Bridge.Enabled, true},
+		{"scaffold marker", again.Bridge.ScaffoldMark, ".lode"},
+		{"template", again.Templates.Default, "go-cli"},
+		{"weights", fmt.Sprint(again.Health.Weights), fmt.Sprint(map[string]int{"readme": 40, "git": 30, "bank": 30})},
+		{"ignore list", fmt.Sprint(again.Scanner.Ignore), fmt.Sprint([]string{"tmp", "cache"})},
+		{"max depth", again.Scanner.MaxDepth, 3},
+		{"density", again.Appearance.Density, "compact"},
+		{"profile", again.Keybindings.Profile, "vim"},
+		{"retention", again.Data.SnapshotRetentionDays, 30},
+	}
+	for _, u := range untouched {
+		if fmt.Sprint(u.got) != fmt.Sprint(u.want) {
+			t.Errorf("%s = %v, want %v (lost by the save round-trip)", u.name, u.got, u.want)
+		}
 	}
 }
