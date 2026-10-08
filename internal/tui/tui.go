@@ -355,6 +355,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.Status = "Loading stats…"
 			return m, statsCmd(m.svc)
+		case key.Matches(x, keys.Settings):
+			// Settings reads config only — no service required.
+			return m, SelectScreen(ScreenSettings)
 		case key.Matches(x, keys.Confluence):
 			if m.svc == nil {
 				m.Status = "Confluences unavailable: no service in this session"

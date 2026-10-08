@@ -134,6 +134,7 @@ type Root struct {
 	conflTI      textinput.Model    // new/rename prompt input
 	conflTIMode  string             // "", "new" or "rename"
 	conflTIQ     string             // rename target (confluence id)
+	setgCursor   int                // selected Settings section
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -499,6 +500,9 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if r.screen == ScreenSource {
 			return r.updateSource(x)
 		}
+		if r.screen == ScreenSettings {
+			return r.settingsKeys(x)
+		}
 		if r.screen == ScreenConfluence {
 			return r.confluenceKeys(x)
 		}
@@ -710,6 +714,8 @@ func (r Root) render() string {
 		body = r.masterView()
 	case ScreenStats:
 		body = r.statsView()
+	case ScreenSettings:
+		body = r.settingsView()
 	case ScreenConfluence:
 		body = r.confluenceView()
 	default:

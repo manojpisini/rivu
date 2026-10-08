@@ -147,6 +147,19 @@ func TestGoldenPhase4Screens(t *testing.T) {
 			}})
 			return r
 		}},
+		{"settings", func(t *testing.T) Root {
+			r := sized(t)
+			// Pin the three summary values that config.Default derives
+			// from the host (root, editor, db path); everything else in
+			// the defaults is already fixed text on every OS.
+			cfg := r.cfg
+			cfg.Workspace.Root = "/w"
+			cfg.Editors.Default = "nvim"
+			cfg.Data.DBPath = "/home/u/.rivu/rivu.db"
+			r.cfg = cfg
+			r, _ = upd(t, r, SelectScreenMsg{Screen: ScreenSettings})
+			return r
+		}},
 		{"actions-menu", func(t *testing.T) Root {
 			r := sized(t)
 			r, _ = upd(t, r, runeKey("x"))

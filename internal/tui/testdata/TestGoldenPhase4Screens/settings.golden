@@ -1,0 +1,19 @@
+SETTINGS
+> General        Workspace root        /w
+  Editors        Default editor        nvim
+  Flow           Channel mapping       00_Source … 90_Delta
+  Bridge         Bridge integration    disabled
+  Templates      Default template      empty
+  Health         Score weighting       custom
+  Scanner        Ignore list           node_modules, .git, dist, build, .next, target, vendor, co…
+  Appearance     Theme                 graphite-violet
+  Keybindings    Profile               default
+  Data           DB location           /home/u/.rivu/rivu.db
+  About          Version               dev
+
+FIELDS - GENERAL
+  workspace.root                  /w
+  workspace.secondary_roots       -
+  workspace.auto_rescan_on_launch true
+
+[tab] section  [j/k] move  [esc] back
