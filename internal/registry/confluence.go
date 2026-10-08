@@ -83,30 +83,31 @@ func (r *Registry) ListConfluences() ([]Confluence, error) {
 }
 
 // RenameConfluence renames the confluence found by name or id; the new
-// name is slug-normalised and must not be taken.
-func (r *Registry) RenameConfluence(q, newName string) error {
+// name is slug-normalised and must not be taken. It returns the stored
+// name so callers can print what was actually written.
+func (r *Registry) RenameConfluence(q, newName string) (string, error) {
 	c, err := r.Confluence(q)
 	if err != nil {
-		return err
+		return "", err
 	}
 	n, err := normalizeConfluenceName(newName)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if n == c.Name {
-		return nil
+		return c.Name, nil
 	}
 	var taken int
 	if err := r.DB.QueryRow(`SELECT count(*) FROM confluences WHERE name=?`, n).Scan(&taken); err != nil {
-		return err
+		return "", err
 	}
 	if taken > 0 {
-		return fmt.Errorf("confluence %q already exists", n)
+		return "", fmt.Errorf("confluence %q already exists", n)
 	}
 	if _, err := r.DB.Exec(`UPDATE confluences SET name=? WHERE id=?`, n, c.ID); err != nil {
-		return fmt.Errorf("rename confluence: %w", err)
+		return "", fmt.Errorf("rename confluence: %w", err)
 	}
-	return nil
+	return n, nil
 }
 
 // DeleteConfluence removes the confluence and its membership links only;

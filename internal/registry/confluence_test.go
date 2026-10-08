@@ -77,8 +77,8 @@ func TestConfluenceCRUD(t *testing.T) {
 	}
 
 	// rename frees the old name and the new one is normalised
-	if err := r.RenameConfluence("heap-stack", "H&S"); err != nil {
-		t.Fatalf("rename: %v", err)
+	if n, err := r.RenameConfluence("heap-stack", "H&S"); err != nil || n != "h-s" {
+		t.Fatalf("rename = %q, %v; want stored h-s", n, err)
 	}
 	got, err := r.Confluence("h-s")
 	if err != nil || got.ID != c.ID {
@@ -87,16 +87,16 @@ func TestConfluenceCRUD(t *testing.T) {
 	if _, err := r.Confluence("heap-stack"); !errors.Is(err, ErrConfluenceNotFound) {
 		t.Errorf("old name still resolves: %v", err)
 	}
-	if err := r.RenameConfluence("h-s", "h-s"); err != nil {
-		t.Errorf("rename to the same name must be a no-op: %v", err)
+	if n, err := r.RenameConfluence("h-s", "h-s"); err != nil || n != "h-s" {
+		t.Errorf("rename to the same name must be a no-op, got %q, %v", n, err)
 	}
-	if err := r.RenameConfluence("ghost", "x"); !errors.Is(err, ErrConfluenceNotFound) {
+	if _, err := r.RenameConfluence("ghost", "x"); !errors.Is(err, ErrConfluenceNotFound) {
 		t.Errorf("rename missing = %v, want ErrConfluenceNotFound", err)
 	}
 	if _, err := r.CreateConfluence("devtools", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RenameConfluence("h-s", "devtools"); err == nil {
+	if _, err := r.RenameConfluence("h-s", "devtools"); err == nil {
 		t.Error("rename onto an existing confluence must fail")
 	}
 

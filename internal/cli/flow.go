@@ -12,10 +12,11 @@ import (
 )
 
 // requireYes enforces the Plan → confirm → Apply gate (spec 1.4.3): a
-// mutating move needs --yes; --dry-run previews instead (exit 4).
+// mutating command needs --yes; --dry-run previews instead (exit 4).
+// Shared by flow, delta and the confluence rename/rm gates.
 func requireYes(dry, yes bool) error {
 	if !dry && !yes {
-		return fmt.Errorf("flow changes require --yes (or use --dry-run): %w", ErrNeedsConfirm)
+		return fmt.Errorf("this action requires --yes (or use --dry-run): %w", ErrNeedsConfirm)
 	}
 	return nil
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // ErrInvalid is returned when a name cannot become a safe slug.
-var ErrInvalid = errors.New("name cannot be used as a project slug")
+var ErrInvalid = errors.New("name cannot be a slug")
 
 // windowsReserved lists device names Windows refuses as a path element,
 // with or without an extension (CON.txt is also invalid there).

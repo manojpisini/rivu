@@ -30,6 +30,8 @@ func ExitCode(err error, ran bool) int {
 		return 2
 	case errors.Is(err, registry.ErrNotFound), errors.Is(err, registry.ErrAmbiguous):
 		return 3
+	case errors.Is(err, registry.ErrConfluenceNotFound):
+		return 3
 	case errors.Is(err, config.ErrNotFound):
 		return 3
 	case errors.Is(err, ErrNeedsConfirm):

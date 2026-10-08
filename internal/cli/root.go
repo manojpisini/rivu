@@ -107,7 +107,7 @@ func newRoot(version, commit, date string, ran *bool) *cobra.Command {
 	r.RunE = withApp(func(a *service.App, _ []string) error {
 		return launchTUI(a)
 	})
-	r.AddCommand(tuiCmd(), scanCmd(), indexCmd(), sourceCmd(), openCmd(), flowCmd(), deltaCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd(), versionCmd(version, commit, date), initCmd(), pathCmd(), docsCmd())
+	r.AddCommand(tuiCmd(), scanCmd(), indexCmd(), sourceCmd(), openCmd(), flowCmd(), deltaCmd(), doctorCmd(), mapCmd(), listCmd(), statsCmd(), configCmd(), dashboardCmd(), confluenceCmd(), versionCmd(version, commit, date), initCmd(), pathCmd(), docsCmd())
 	return r
 }
 
