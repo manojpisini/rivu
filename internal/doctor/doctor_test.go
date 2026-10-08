@@ -1,10 +1,11 @@
 package doctor
 
 import (
-	"github.com/manojpisini/rivu/internal/registry"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/manojpisini/rivu/internal/registry"
 )
 
 func TestScore(t *testing.T) {
@@ -68,6 +69,54 @@ func TestDoubleInitCheck(t *testing.T) {
 
 	if _, ok = find(Run(registry.Project{Path: d}, ""), "Git exclusivity"); ok {
 		t.Error("check must be absent when no scaffold marker configured")
+	}
+}
+
+// TestTestDetection (D-02): real signals — suites, test file
+// patterns, configured runners — not the old tests/internal proxy.
+func TestTestDetection(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string // path -> content; a path ending in / is a dir marker
+		want  bool
+	}{
+		{"empty project", nil, false},
+		{"go tests in internal", map[string]string{"internal/foo_test.go": "package x"}, true},
+		{"go tests nested", map[string]string{"pkg/db/foo_test.go": "package db"}, true},
+		{"tests dir", map[string]string{"tests/README": "# tests"}, true},
+		{"jest suite dir", map[string]string{"__tests__/a.spec.ts": ""}, true},
+		{"spec file", map[string]string{"src/login.spec.ts": ""}, true},
+		{"test file", map[string]string{"src/widget.test.js": ""}, true},
+		{"pytest.ini", map[string]string{"pytest.ini": ""}, true},
+		{"pyproject with pytest", map[string]string{"pyproject.toml": "[tool.pytest.ini_options]\naddopts = '-q'"}, true},
+		{"pyproject without pytest", map[string]string{"pyproject.toml": "[project]\nname = 'x'"}, false},
+		{"npm test script", map[string]string{"package.json": `{"scripts":{"test":"vitest run"}}`}, true},
+		{"npm without test script", map[string]string{"package.json": `{"scripts":{"build":"tsc"}}`}, false},
+		{"rust inline tests", map[string]string{"src/lib.rs": "#[cfg(test)]\nmod t {}"}, true},
+		{"rust without tests", map[string]string{"src/lib.rs": "fn a() {}"}, false},
+		{"test inside node_modules ignored", map[string]string{"node_modules/dep/x.test.js": ""}, false},
+		{"internal without tests is not enough", map[string]string{"internal/models.go": "package models"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			for path, content := range tc.files {
+				full := filepath.Join(d, filepath.FromSlash(path))
+				if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			c := testsCheck(d)
+			if c.OK != tc.want {
+				t.Errorf("OK=%v (%s), want %v", c.OK, c.Detail, tc.want)
+			}
+			if c.Name != "Tests" || c.Weight != 10 {
+				t.Errorf("check = %+v, want Tests weight 10", c)
+			}
+		})
 	}
 }
 
