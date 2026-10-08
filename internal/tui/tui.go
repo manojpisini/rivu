@@ -1484,6 +1484,43 @@ func (m Model) listRows() int {
 	return max(1, body-6)
 }
 
+// rowAt maps a screen cell to a project row for the optional mouse
+// (P6.16), mirroring View's pane geometry: header, then the panel's
+// border, title, column header and separator lines. -1 when the cell
+// is not on a rendered row.
+func (m Model) rowAt(y, x int) int {
+	header := bgStyle.Width(m.Width).Render(m.header())
+	h := lipgloss.Height(header)
+	panelX, panelW := 0, m.Width
+	switch {
+	case m.Width < 100: // single pane: project list only
+	case m.Width < 120: // sidebar + list
+		sw := clamp(m.Width/5, 24, 30)
+		panelX, panelW = sw+1, m.Width-sw-3
+	default: // sidebar + list + detail
+		sw := clamp(m.Width/5, 24, 30)
+		rw := clamp(m.Width/3, 34, 52)
+		panelX, panelW = sw+1, m.Width-sw-rw-4
+	}
+	if x < panelX || x >= panelX+panelW {
+		return -1
+	}
+	rowY := y - h - 4 // border + title + column header + separator
+	available := m.listRows()
+	if rowY < 0 || rowY >= available {
+		return -1
+	}
+	start := 0
+	if m.Cursor >= available {
+		start = m.Cursor - available + 1
+	}
+	i := start + rowY
+	if i < 0 || i >= len(m.Visible) {
+		return -1
+	}
+	return i
+}
+
 // moveCursor steps the list by delta rows, clamped to the visible set;
 // page and half-page motions drive the list regardless of sidebar
 // focus (the sidebar only has six stages — a page is meaningless there).

@@ -150,6 +150,8 @@ type Root struct {
 	palOn        bool            // command palette overlay open (P5.12)
 	palTI        textinput.Model // palette query line
 	palCursor    int             // highlighted match
+	lastClickRow int             // mouse double-click target row (P6.16)
+	lastClickAt  time.Time       // when that row was last clicked
 	styleTitle   lipgloss.Style
 	styleConfirm lipgloss.Style
 	styleMuted   lipgloss.Style
@@ -222,7 +224,7 @@ func Run(svc service.Service, cfg config.Config) (err error) {
 			logCrash(rec, &err)
 		}
 	}()
-	_, err = tea.NewProgram(NewRoot(svc, cfg), tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(NewRoot(svc, cfg), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
 
@@ -520,6 +522,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.toasts = r.toasts[1:]
 		}
 		return r, nil
+	case tea.MouseMsg:
+		return r.mouse(x)
 	case tea.KeyMsg:
 		if n := len(r.confirms); n > 0 {
 			return r.updateConfirm(x, r.confirms[n-1])
@@ -599,6 +603,72 @@ func (r Root) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	nm, cmd := r.dashboard.Update(msg)
 	r.dashboard = nm.(Model)
 	return r, cmd
+}
+
+// mouse is the optional mouse support (P6.16): the wheel becomes the
+// existing up/down keys so every screen scrolls for free, a click
+// selects the project row under the pointer, and a second click on the
+// same row opens it. The mouse is never required — every action still
+// has a key.
+func (r Root) mouse(m tea.MouseMsg) (tea.Model, tea.Cmd) {
+	var k tea.KeyType
+	delta := 1
+	switch m.Button {
+	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+		if m.Button == tea.MouseButtonWheelUp {
+			k, delta = tea.KeyUp, -1
+		} else {
+			k = tea.KeyDown
+		}
+		if m.Shift {
+			k = tea.KeyPgDown
+			delta = r.dashboard.listRows()
+			if m.Button == tea.MouseButtonWheelUp {
+				k, delta = tea.KeyPgUp, -delta
+			}
+		}
+		// The wheel scrolls the project list itself, whichever pane has
+		// focus; a modal, the palette and the other screens keep their
+		// own key handling.
+		if len(r.confirms) == 0 && !r.palOn && r.screen == ScreenDashboard {
+			r.dashboard.moveCursor(delta)
+			return r, nil
+		}
+		return r.Update(tea.KeyMsg{Type: k})
+	case tea.MouseButtonLeft:
+		if m.Action != tea.MouseActionPress {
+			return r, nil
+		}
+		return r.mouseClick(m.X, m.Y)
+	default:
+		return r, nil
+	}
+}
+
+// mouseClick selects the dashboard row under the pointer; the second
+// click on the same row within half a second opens it (enter).
+func (r Root) mouseClick(x, y int) (tea.Model, tea.Cmd) {
+	// An overlay, a modal or a too-small frame owns the screen; only
+	// the plain dashboard list takes clicks.
+	if len(r.confirms) > 0 || r.errExpand || r.palOn || r.screen != ScreenDashboard ||
+		r.width < 60 || r.height < 15 ||
+		r.dashboard.helpOpen || r.dashboard.conflEdit != nil || r.dashboard.DetailFull ||
+		r.dashboard.flowPick || r.dashboard.actionMenu {
+		return r, nil
+	}
+	i := r.dashboard.rowAt(y, x)
+	if i < 0 {
+		return r, nil
+	}
+	// A click selects (and leaves the search input).
+	r.dashboard.search.Blur()
+	r.dashboard.Cursor = i
+	if r.lastClickRow == i && time.Since(r.lastClickAt) < 500*time.Millisecond {
+		r.lastClickRow, r.lastClickAt = -1, time.Time{}
+		return r.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+	r.lastClickRow, r.lastClickAt = i, time.Now()
+	return r, nil
 }
 
 // updateConfirm handles the top modal; only y accepts, everything else
