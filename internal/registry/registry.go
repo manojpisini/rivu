@@ -287,9 +287,11 @@ func scanProject(s interface{ Scan(...any) error }) (Project, error) {
 
 const cols = `id,name,slug,path,channel,flow_stage,language,stack,has_git,has_bank,has_map,health_score,created_at,last_opened_at,last_scanned_at,on_disk,registered,root`
 
+// lifecycleOrderBy: source, active, maintenance, research, delta (spec 1.2.1).
+const lifecycleOrderBy = `CASE flow_stage WHEN 'source' THEN 0 WHEN 'active' THEN 1 WHEN 'maintenance' THEN 2 WHEN 'research' THEN 3 WHEN 'delta' THEN 4 ELSE 5 END, name`
+
 func (r *Registry) List() ([]Project, error) {
-	// Lifecycle order: source, active, maintenance, research, delta (spec 1.2.1).
-	rows, err := r.DB.Query(`SELECT ` + cols + ` FROM projects ORDER BY CASE flow_stage WHEN 'source' THEN 0 WHEN 'active' THEN 1 WHEN 'maintenance' THEN 2 WHEN 'research' THEN 3 WHEN 'delta' THEN 4 ELSE 5 END, name`)
+	rows, err := r.DB.Query(`SELECT ` + cols + ` FROM projects ORDER BY ` + lifecycleOrderBy)
 	if err != nil {
 		return nil, err
 	}
@@ -542,44 +544,11 @@ func civilDay(t time.Time) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
-// ConfluenceProjectIDs returns the project IDs that are members of the
-// confluence identified by name or id. An unknown confluence matches
-// nothing: filters narrow a list, they do not fail it.
-func (r *Registry) ConfluenceProjectIDs(q string) ([]string, error) {
-	rows, err := r.DB.Query(`SELECT pc.project_id FROM project_confluences pc JOIN confluences c ON c.id=pc.confluence_id WHERE c.name=? OR c.id=?`, q, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
-// AttachConfluence links projectID to the confluence named name,
-// creating the confluence when it does not exist. Repeating a membership
-// is a no-op; an empty name is an error.
-func (r *Registry) AttachConfluence(projectID, name string) error {
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("confluence name is required")
-	}
-	if _, err := r.DB.Exec(`INSERT INTO confluences(id,name) VALUES(?,?) ON CONFLICT(name) DO NOTHING`, uuid.NewString(), name); err != nil {
-		return fmt.Errorf("create confluence: %w", err)
-	}
-	_, err := r.DB.Exec(`INSERT INTO project_confluences(project_id,confluence_id) SELECT ?,id FROM confluences WHERE name=? ON CONFLICT DO NOTHING`, projectID, name)
-	return err
-}
-
-// Typed sentinel errors for project lookup.
+// Typed sentinel errors for project and confluence lookup.
 var (
-	ErrNotFound  = errors.New("project not found")
-	ErrAmbiguous = errors.New("ambiguous project reference")
+	ErrNotFound           = errors.New("project not found")
+	ErrAmbiguous          = errors.New("ambiguous project reference")
+	ErrConfluenceNotFound = errors.New("confluence not found")
 )
 
 func (r *Registry) Find(q string) (Project, error) {
