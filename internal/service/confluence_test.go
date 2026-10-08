@@ -34,6 +34,55 @@ func projectToml(t *testing.T, path string) string {
 // rewrites [rivu].confluences in the affected projects' Banks from the
 // registry — add, rename across all members, remove one, delete the
 // rest.
+// TestConfluenceServiceReads (P5.01): the read-side service methods —
+// Confluences with member counts, ConfluenceShow with its projects,
+// ProjectConfluences per project, and typed not-found errors.
+func TestConfluenceServiceReads(t *testing.T) {
+	a := confluenceTestApp(t)
+	for _, name := range []string{"alpha", "beta"} {
+		if _, err := a.Source(name, SourceOpts{}); err != nil {
+			t.Fatalf("Source %s: %v", name, err)
+		}
+	}
+	if _, err := a.ConfluenceNew("ship", "notes"); err != nil {
+		t.Fatalf("ConfluenceNew: %v", err)
+	}
+	if err := a.ConfluenceAdd("alpha", "ship"); err != nil {
+		t.Fatalf("ConfluenceAdd: %v", err)
+	}
+
+	cs, err := a.Confluences()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 1 || cs[0].Name != "ship" || cs[0].Members != 1 {
+		t.Fatalf("Confluences = %+v, want ship with 1 member", cs)
+	}
+
+	c, members, err := a.ConfluenceShow("ship")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Name != "ship" || c.Notes != "notes" || len(members) != 1 || members[0].Slug != "alpha" {
+		t.Fatalf("ConfluenceShow = %+v / %+v, want ship/notes + alpha", c, members)
+	}
+
+	names, err := a.ProjectConfluences("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "ship" {
+		t.Fatalf("ProjectConfluences = %v, want [ship]", names)
+	}
+
+	if _, _, err := a.ConfluenceShow("nope"); err == nil {
+		t.Error("unknown confluence must surface an error")
+	}
+	if _, err := a.ProjectConfluences("nope"); err == nil {
+		t.Error("unknown project must surface an error")
+	}
+}
+
 func TestConfluenceProjectTomlMirror(t *testing.T) {
 	a := confluenceTestApp(t)
 	paths := map[string]string{}

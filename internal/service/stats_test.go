@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +90,71 @@ func TestMedian(t *testing.T) {
 			t.Errorf("median(%v) = %d, want %d", tc.in, got, tc.want)
 		}
 	}
+}
+
+// TestStatsJSONSchemaAndCSV: the shared export shapes — schema-1 JSON
+// with a non-null by_language array, and the metric,value CSV table.
+func TestStatsJSONSchemaAndCSV(t *testing.T) {
+	st := Stats{
+		Range: "30d", Total: 3, AvgHealth: 70, MedianHealth: 75, Stale: 1,
+		ByFlow:     []Count{{Name: "source", Count: 2}},
+		ByHealth:   []Count{{Name: "90-100", Count: 1}},
+		ByLanguage: nil,
+	}
+	var jb bytes.Buffer
+	if err := StatsJSON(&jb, st); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Schema int `json:"schema"`
+		Stats
+	}
+	if err := json.Unmarshal(jb.Bytes(), &doc); err != nil {
+		t.Fatalf("decode: %v (%s)", err, jb.String())
+	}
+	if doc.Schema != 1 {
+		t.Errorf("schema = %d, want 1", doc.Schema)
+	}
+	if !strings.Contains(jb.String(), `"by_language":[]`) {
+		t.Errorf("by_language must encode as [], got %s", jb.String())
+	}
+
+	var cb bytes.Buffer
+	if err := StatsCSV(&cb, st); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"metric,value", "range,30d", "projects,3", "stale,1", "flow_source,2", "health_90_100,1"} {
+		if !strings.Contains(cb.String(), want) {
+			t.Errorf("csv missing %q:\n%s", want, cb.String())
+		}
+	}
+}
+
+// TestActivityDailyCounts: the Stats sparkline reads per-day event
+// counts over the window.
+func TestActivityDailyCounts(t *testing.T) {
+	a := openTestApp(t)
+	if _, err := a.Source("daily", SourceOpts{Flow: "source"}); err != nil {
+		t.Fatalf("Source: %v", err)
+	}
+	days, err := a.ActivityDaily(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 7 {
+		t.Fatalf("len = %d, want 7", len(days))
+	}
+	if sum(days) == 0 {
+		t.Error("expected at least one event in the window")
+	}
+}
+
+func sum(xs []int) int {
+	n := 0
+	for _, x := range xs {
+		n += x
+	}
+	return n
 }
 
 func assertCount(t *testing.T, got []Count, want map[string]int) {
