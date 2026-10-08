@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  exclusions:
+    presets:
+      # fmt.Fprint*, defer Close/Rollback, os.Remove/Setenv: their errors
+      # are non-actionable; the meaningful ones are checked explicitly.
+      - std-error-handling
+    rules:
+      # source.go's step/field chain predates this optional style check;
+      # a tagged switch would need a default arm that changes nothing.
+      - text: "QF1002"
+        linters:
+          - staticcheck

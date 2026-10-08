@@ -14,6 +14,9 @@ jobs:
       - name: Gofmt check
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
   test:
     strategy:
       matrix:

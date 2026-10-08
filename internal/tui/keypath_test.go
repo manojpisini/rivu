@@ -88,7 +88,7 @@ func TestFlowPickerArrowKeysClamp(t *testing.T) {
 // still toasts what happened (P3.33 covers the fallback branch).
 func TestFlowApplyEmptyNoteFallsBack(t *testing.T) {
 	m, _ := scanFixture(t)
-	m, cmd := updateC(t, m, flowApplyMsg{slug: "a", stage: "active"})
+	_, cmd := updateC(t, m, flowApplyMsg{slug: "a", stage: "active"})
 	if cmd == nil {
 		t.Fatal("successful apply must toast and refresh")
 	}

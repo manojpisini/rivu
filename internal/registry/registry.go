@@ -93,11 +93,11 @@ func (r *Registry) migrate() error {
 			return fmt.Errorf("migrate to v%d: %w", i+1, err)
 		}
 		if _, err = tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate to v%d: %w", i+1, err)
 		}
 		if _, err = tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate to v%d: %w", i+1, err)
 		}
 		if err = tx.Commit(); err != nil {
@@ -166,7 +166,7 @@ func (r *Registry) ApplyDiscovery(ps []Project) ([]error, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err = tx.Exec(markMissingSQL); err != nil {
 		return nil, fmt.Errorf("mark missing: %w", err)
@@ -230,7 +230,7 @@ func (r *Registry) Upsert(p Project) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// A scan creates fresh candidate IDs, but project identity belongs to the
 	// existing path. Preserve both ID and slug when the same path is rescanned.
@@ -476,7 +476,7 @@ func (r *Registry) ApplyFlow(id, path, channel, flow string, hasBank, hasMap boo
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	res, err := tx.Exec(`UPDATE projects SET path=?,channel=?,flow_stage=?,has_bank=?,has_map=? WHERE id=?`,
 		canonical(path), channel, flow, b(hasBank), b(hasMap), id)
 	if err != nil {

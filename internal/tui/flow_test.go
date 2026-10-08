@@ -124,7 +124,7 @@ func TestFlowPlanThenApply(t *testing.T) {
 	if cmd4 == nil {
 		t.Fatal("applied flow must toast and refresh")
 	}
-	m, cmd5 := updateC(t, m, flowApplyMsg{slug: "a", stage: "active", err: registry.ErrNotFound})
+	_, cmd5 := updateC(t, m, flowApplyMsg{slug: "a", stage: "active", err: registry.ErrNotFound})
 	tm, ok := cmd5().(toastMsg)
 	if !ok || tm.t.Level != "bad" || !strings.Contains(tm.t.Text, "flow failed for a") {
 		t.Fatalf("toast = %#v, want sticky failure", tm)

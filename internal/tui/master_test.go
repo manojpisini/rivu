@@ -109,7 +109,7 @@ func TestMasterDashboardErrorAndEmpty(t *testing.T) {
 	// empty snapshot: muted placeholders, no crash
 	f.StatsErr = nil
 	f.DashRes = service.Dashboard{Root: "C:/ws"}
-	m, cmd = updateC(t, m, runeKey("g"))
+	_, cmd = updateC(t, m, runeKey("g"))
 	r, _ = upd(t, r, cmd())
 	v := r.View()
 	for _, want := range []string{"no projects yet", "nothing needs attention", "no activity recorded yet", "Health: 0/100"} {

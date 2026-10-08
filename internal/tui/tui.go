@@ -1272,7 +1272,7 @@ var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
 	subtitleStyle = lipgloss.NewStyle().Foreground(theme.Muted)
 	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(theme.Border).Foreground(theme.Text).Background(theme.Panel).Padding(0, style.Pad)
-	focusStyle    = panelStyle.Copy().BorderForeground(theme.Accent)
+	focusStyle    = panelStyle.BorderForeground(theme.Accent)
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
 	mutedStyle    = lipgloss.NewStyle().Foreground(theme.Muted)
 	valueStyle    = lipgloss.NewStyle().Foreground(theme.Text)

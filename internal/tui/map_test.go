@@ -56,7 +56,7 @@ func TestMapDoneToastsAndRefreshes(t *testing.T) {
 	}
 
 	// error path: sticky toast naming the project
-	m, cmd = updateC(t, m, mapDoneMsg{q: "a", err: registry.ErrNotFound})
+	_, cmd = updateC(t, m, mapDoneMsg{q: "a", err: registry.ErrNotFound})
 	tm, ok := cmd().(toastMsg)
 	if !ok || tm.t.Level != "bad" || !strings.Contains(tm.t.Text, "agent map failed for a") {
 		t.Fatalf("toast = %#v, want sticky failure", tm)

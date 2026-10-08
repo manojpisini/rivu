@@ -90,7 +90,7 @@ func FuzzMake(f *testing.F) {
 			t.Fatalf("Make(%q) = %q has uncollapsed hyphens", name, s)
 		}
 		for _, r := range s {
-			if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-') {
+			if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' {
 				t.Fatalf("Make(%q) = %q contains forbidden rune %q", name, s, r)
 			}
 		}

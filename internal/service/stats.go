@@ -196,7 +196,7 @@ func StatsCSV(w io.Writer, st Stats) error {
 	for _, c := range st.ByHealth {
 		rows = append(rows, []string{"health_" + strings.ReplaceAll(c.Name, "-", "_"), strconv.Itoa(c.Count)})
 	}
-	cw.WriteAll(rows)
+	_ = cw.WriteAll(rows)
 	return cw.Error()
 }
 

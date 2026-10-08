@@ -115,7 +115,7 @@ func TestEditorDoneRefreshesProjects(t *testing.T) {
 		t.Fatalf("refresh = %d projects, err %v; want %d", len(pm.ps), pm.err, len(f.Projects))
 	}
 
-	m, cmd = updateC(t, m, editorDoneMsg{slug: "a", err: registry.ErrNotFound})
+	_, cmd = updateC(t, m, editorDoneMsg{slug: "a", err: registry.ErrNotFound})
 	msg := cmd()
 	tm, ok := msg.(toastMsg)
 	if !ok || tm.t.Level != "bad" || !strings.Contains(tm.t.Text, "editor for a failed") {

@@ -49,7 +49,7 @@ func TestHelpSwallowsKeysAndQuits(t *testing.T) {
 			t.Fatalf("key %v must be swallowed by the overlay, open=%v cmd=%v", k, m.helpOpen, cmd)
 		}
 	}
-	m, cmd := updateC(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := updateC(t, m, tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Fatal("ctrl+c must still quit from help")
 	}

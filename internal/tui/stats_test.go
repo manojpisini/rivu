@@ -88,7 +88,7 @@ func TestStatsScreenErrorsAndEmpty(t *testing.T) {
 	// no events: the activity row says so instead of a flat line
 	f.StatsErr = nil
 	f.ActivityRes = nil
-	m, cmd = updateC(t, m, runeKey("s"))
+	_, cmd = updateC(t, m, runeKey("s"))
 	r, _ = upd(t, r, cmd())
 	v := r.View()
 	if !strings.Contains(v, "no events yet") {

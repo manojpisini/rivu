@@ -180,7 +180,7 @@ func (r *Registry) Import(d Dump) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, del := range []string{
 		`DELETE FROM activity_log`,
 		`DELETE FROM health_snapshots`,
