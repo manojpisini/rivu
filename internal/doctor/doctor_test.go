@@ -14,14 +14,14 @@ import (
 func TestScore(t *testing.T) {
 	d := t.TempDir()
 	_ = os.WriteFile(filepath.Join(d, "README.md"), []byte("x"), 0644)
-	r := Run(registry.Project{Path: d}, "", 45)
+	r := Run(registry.Project{Path: d}, "", 45, nil)
 	if r.Score < 20 {
 		t.Fatalf("score=%d", r.Score)
 	}
 }
 
 func TestCheckWeightsSumTo100(t *testing.T) {
-	r := Run(registry.Project{Path: t.TempDir()}, "", 45)
+	r := Run(registry.Project{Path: t.TempDir()}, "", 45, nil)
 	sum := 0
 	for _, c := range r.Checks {
 		sum += c.Weight
@@ -57,7 +57,7 @@ func TestDoubleInitCheck(t *testing.T) {
 	}
 
 	writeOwner("rivu")
-	c, ok := find(Run(registry.Project{Path: d}, ".lode", 45), "Git exclusivity")
+	c, ok := find(Run(registry.Project{Path: d}, ".lode", 45, nil), "Git exclusivity")
 	if !ok {
 		t.Fatal("exclusivity check missing")
 	}
@@ -66,11 +66,11 @@ func TestDoubleInitCheck(t *testing.T) {
 	}
 
 	writeOwner("bridge")
-	if c, _ = find(Run(registry.Project{Path: d}, ".lode", 45), "Git exclusivity"); !c.OK {
+	if c, _ = find(Run(registry.Project{Path: d}, ".lode", 45, nil), "Git exclusivity"); !c.OK {
 		t.Error("owner=bridge must not flag double-init")
 	}
 
-	if _, ok = find(Run(registry.Project{Path: d}, "", 45), "Git exclusivity"); ok {
+	if _, ok = find(Run(registry.Project{Path: d}, "", 45, nil), "Git exclusivity"); ok {
 		t.Error("check must be absent when no scaffold marker configured")
 	}
 }
@@ -116,8 +116,8 @@ func TestTestDetection(t *testing.T) {
 			if c.OK != tc.want {
 				t.Errorf("OK=%v (%s), want %v", c.OK, c.Detail, tc.want)
 			}
-			if c.Name != "Tests" || c.Weight != 10 {
-				t.Errorf("check = %+v, want Tests weight 10", c)
+			if c.Name != "Tests" {
+				t.Errorf("check = %+v, want Tests", c)
 			}
 		})
 	}
@@ -126,7 +126,7 @@ func TestTestDetection(t *testing.T) {
 // TestFailingChecksCarryFindingAndRemedy (D-03): every failing check
 // says what is wrong and what to do; passing checks keep their label.
 func TestFailingChecksCarryFindingAndRemedy(t *testing.T) {
-	r := Run(registry.Project{Path: t.TempDir()}, "", 45)
+	r := Run(registry.Project{Path: t.TempDir()}, "", 45, nil)
 	for _, c := range r.Checks {
 		if c.OK {
 			if c.Finding != "" {
@@ -183,8 +183,8 @@ func TestDependencyCheck(t *testing.T) {
 			if c.OK != tc.want {
 				t.Errorf("OK=%v (%s), want %v", c.OK, c.Detail, tc.want)
 			}
-			if c.Name != "Dependencies" || c.Weight != 5 {
-				t.Errorf("check = %+v, want Dependencies weight 5", c)
+			if c.Name != "Dependencies" {
+				t.Errorf("check = %+v, want Dependencies", c)
 			}
 		})
 	}
@@ -194,11 +194,11 @@ func TestDependencyCheck(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d, "go.mod"), []byte("module x\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	base := Run(registry.Project{Path: d}, "", 45).Score
+	base := Run(registry.Project{Path: d}, "", 45, nil).Score
 	if err := os.WriteFile(filepath.Join(d, "go.sum"), []byte(""), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if got := Run(registry.Project{Path: d}, "", 45).Score; got != base+5 {
+	if got := Run(registry.Project{Path: d}, "", 45, nil).Score; got != base+5 {
 		t.Errorf("lockfile adds %d to score, want +5 (base %d, got %d)", got-base, base, got)
 	}
 }
@@ -207,7 +207,7 @@ func TestDependencyCheck(t *testing.T) {
 // is gone reports MISSING — one failing check, score 0, not a pile-up
 // of failures that reads like 5/100.
 func TestRunShortCircuitsMissingFolder(t *testing.T) {
-	r := Run(registry.Project{Path: filepath.Join(t.TempDir(), "gone")}, "", 45)
+	r := Run(registry.Project{Path: filepath.Join(t.TempDir(), "gone")}, "", 45, nil)
 	if !r.Missing {
 		t.Fatal("want Missing short-circuit")
 	}
@@ -354,10 +354,41 @@ func TestGitRepoChecks(t *testing.T) {
 	}
 }
 
+// TestConfigWeightsDriveScore (D-05): [health].weights decides every
+// score contribution — a supplied map scores exactly the keys it
+// names, nil falls back to the spec defaults summing to 100.
+func TestConfigWeightsDriveScore(t *testing.T) {
+	withReadme := t.TempDir()
+	if err := os.WriteFile(filepath.Join(withReadme, "README.md"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := map[string]int{"readme": 100}
+	r := Run(registry.Project{Path: withReadme}, "", 45, w)
+	if r.Score != 100 {
+		t.Errorf("score = %d, want 100 from weights {readme:100}", r.Score)
+	}
+	for _, c := range r.Checks {
+		want := 0
+		if c.ID == "readme" {
+			want = 100
+		}
+		if c.Weight != want {
+			t.Errorf("%s weight = %d, want %d from config", c.Name, c.Weight, want)
+		}
+	}
+	if got := Run(registry.Project{Path: t.TempDir()}, "", 45, w).Score; got != 0 {
+		t.Errorf("score without README = %d, want 0", got)
+	}
+	// nil → spec defaults: README 20 + vacuous deps 5
+	if got := Run(registry.Project{Path: withReadme}, "", 45, nil).Score; got != 25 {
+		t.Errorf("nil weights score = %d, want spec defaults (20 README + 5 deps)", got)
+	}
+}
+
 // TestCheckIDsAreUniqueAndTyped (D-04): every check carries a stable
-// ID (what [health].weights keys against in P6.05) and a severity.
+// ID (what [health].weights keys against) and a severity.
 func TestCheckIDsAreUniqueAndTyped(t *testing.T) {
-	r := Run(registry.Project{Path: t.TempDir(), CreatedAt: time.Now()}, "", 45)
+	r := Run(registry.Project{Path: t.TempDir(), CreatedAt: time.Now()}, "", 45, nil)
 	seen := map[string]bool{}
 	for _, c := range r.Checks {
 		if c.ID == "" {

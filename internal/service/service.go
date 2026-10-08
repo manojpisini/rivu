@@ -612,7 +612,7 @@ func (a *App) Doctor(q string) ([]doctor.Report, error) {
 	}
 	out := make([]doctor.Report, 0, len(ps))
 	for _, p := range ps {
-		r := doctor.Run(p, a.Config.Bridge.ScaffoldMark, a.Config.Flow.StaleThresholdDays)
+		r := doctor.Run(p, a.Config.Bridge.ScaffoldMark, a.Config.Flow.StaleThresholdDays, a.Config.Health.Weights)
 		_ = a.Registry.SetHealth(p.ID, r.Score)
 		// The run's score joins the history before the trend is read;
 		// same-day repeats dedupe so the sparkline does not stack

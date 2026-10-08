@@ -53,6 +53,23 @@ type Report struct {
 
 func ex(p string) bool { _, e := os.Stat(p); return e == nil }
 
+// defaultWeights are the spec's [health].weights values, used when no
+// config is supplied. A config-supplied map (D-05) is taken as-is:
+// config.Validate guarantees it sums to 100, and keys it omits score 0.
+var defaultWeights = map[string]int{
+	"readme": 20, "git": 15, "bank": 15, "map": 15,
+	"tests": 10, "ci": 10, "license": 10, "deps_fresh": 5,
+}
+
+// weightFor resolves a check's score contribution from
+// [health].weights. nil means no config: the spec defaults apply.
+func weightFor(weights map[string]int, id string) int {
+	if weights == nil {
+		return defaultWeights[id]
+	}
+	return weights[id]
+}
+
 // gitInitOwner reads the recorded git init owner from the Bank, "" if unknown.
 func gitInitOwner(path string) string {
 	b, err := os.ReadFile(filepath.Join(path, ".metadata", "project.toml"))
@@ -81,7 +98,7 @@ var testSkipDirs = map[string]bool{
 // `tests/` OR `internal/` proxy.
 func testsCheck(root string) Check {
 	c := Check{
-		ID: "tests", Name: "Tests", Severity: "warn", Weight: 10,
+		ID: "tests", Name: "Tests", Severity: "warn",
 		Detail:  "tests detected",
 		Finding: "no tests detected",
 		Remedy:  "add tests (a tests/ folder, *_test.go files, or a configured test script)",
@@ -198,7 +215,7 @@ func depCheck(root string) Check {
 		}
 		if !locked {
 			return Check{
-				ID: "deps_fresh", Name: "Dependencies", Severity: "warn", Weight: 5,
+				ID: "deps_fresh", Name: "Dependencies", Severity: "warn",
 				Detail:  "manifest without lockfile: " + d.manifest,
 				OK:      false,
 				Finding: "manifest without lockfile: " + d.manifest,
@@ -208,12 +225,12 @@ func depCheck(root string) Check {
 	}
 	if !tracked {
 		return Check{
-			ID: "deps_fresh", Name: "Dependencies", Severity: "warn", Weight: 5, OK: true,
+			ID: "deps_fresh", Name: "Dependencies", Severity: "warn", OK: true,
 			Detail: "no dependency manifest",
 		}
 	}
 	return Check{
-		ID: "deps_fresh", Name: "Dependencies", Severity: "warn", Weight: 5, OK: true,
+		ID: "deps_fresh", Name: "Dependencies", Severity: "warn", OK: true,
 		Detail: "manifest and lockfile present",
 	}
 }
@@ -223,7 +240,7 @@ func depCheck(root string) Check {
 // short-circuits with only this check failing (D-07).
 func onDiskCheck(root string) Check {
 	return Check{
-		ID: "on_disk", Name: "On disk", Severity: "error", Weight: 0,
+		ID: "on_disk", Name: "On disk", Severity: "error",
 		Detail:  "project folder present",
 		OK:      ex(root),
 		Finding: "project folder missing on disk",
@@ -244,7 +261,7 @@ func staleCheck(p registry.Project, staleDays int) (Check, bool) {
 	}
 	stale := time.Now().AddDate(0, 0, -staleDays).After(act)
 	c := Check{
-		ID: "stale", Name: "Stale", Severity: "warn", Weight: 0,
+		ID: "stale", Name: "Stale", Severity: "warn",
 		Detail:  fmt.Sprintf("activity within %dd", staleDays),
 		OK:      !stale,
 		Finding: fmt.Sprintf("no activity in %dd", staleDays),
@@ -270,12 +287,12 @@ func bankIncompleteCheck(root string) (Check, bool) {
 	}
 	if len(missing) == 0 {
 		return Check{
-			ID: "bank_incomplete", Name: "Bank files", Severity: "warn", Weight: 0,
+			ID: "bank_incomplete", Name: "Bank files", Severity: "warn",
 			OK: true, Detail: "human docs present",
 		}, true
 	}
 	return Check{
-		ID: "bank_incomplete", Name: "Bank files", Severity: "warn", Weight: 0,
+		ID: "bank_incomplete", Name: "Bank files", Severity: "warn",
 		OK:      false,
 		Detail:  "human docs present",
 		Finding: "Bank incomplete: missing " + strings.Join(missing, ", "),
@@ -291,7 +308,7 @@ func gitignoreCheck(root string) (Check, bool) {
 		return Check{}, false
 	}
 	return Check{
-		ID: "gitignore", Name: ".gitignore", Severity: "warn", Weight: 0,
+		ID: "gitignore", Name: ".gitignore", Severity: "warn",
 		Detail:  ".gitignore present",
 		OK:      ex(filepath.Join(root, ".gitignore")),
 		Finding: ".gitignore missing — secrets and build output may be committed",
@@ -314,7 +331,7 @@ func dirtyTreeCheck(root string) (Check, bool) {
 		return Check{}, false
 	}
 	c := Check{
-		ID: "dirty_tree", Name: "Dirty tree", Severity: "warn", Weight: 0,
+		ID: "dirty_tree", Name: "Dirty tree", Severity: "warn",
 		Detail: "working tree clean", OK: true,
 	}
 	if len(bytes.TrimSpace(out)) > 0 {
@@ -329,8 +346,9 @@ func dirtyTreeCheck(root string) (Check, bool) {
 // ("" disables the exclusivity check); when the marker and .git coexist but
 // the Bank claims rivu ran init, that is a possible double-init (spec 1.7).
 // staleDays is the flow.stale_threshold_days config (<1 disables the check).
+// weights is the [health].weights config (D-05); nil means the spec defaults.
 // A missing folder short-circuits: MISSING instead of a pile of failures (D-07).
-func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
+func Run(p registry.Project, scaffoldMark string, staleDays int, weights map[string]int) Report {
 	root := p.Path
 	if !ex(root) {
 		return Report{
@@ -340,7 +358,7 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 	}
 	checks := []Check{
 		{
-			ID: "readme", Name: "README", Severity: "warn", Weight: 20,
+			ID: "readme", Name: "README", Severity: "warn",
 			Detail:  "project documentation",
 			OK:      ex(filepath.Join(root, "README.md")) || ex(filepath.Join(root, "README")),
 			Finding: "README.md missing",
@@ -348,14 +366,14 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 			Fixable: "readme",
 		},
 		{
-			ID: "git", Name: "Git", Severity: "warn", Weight: 15,
+			ID: "git", Name: "Git", Severity: "warn",
 			Detail:  "version control",
 			OK:      ex(filepath.Join(root, ".git")),
 			Finding: ".git missing — not a repository",
 			Remedy:  "run `git init` in the project folder",
 		},
 		{
-			ID: "bank", Name: "Bank", Severity: "warn", Weight: 15,
+			ID: "bank", Name: "Bank", Severity: "warn",
 			Detail:  "Rivu metadata",
 			OK:      ex(filepath.Join(root, ".metadata", "project.toml")),
 			Finding: ".metadata/project.toml missing",
@@ -363,7 +381,7 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 			Fixable: "map",
 		},
 		{
-			ID: "map", Name: "Map", Severity: "warn", Weight: 15,
+			ID: "map", Name: "Map", Severity: "warn",
 			Detail:  "agent-readable map",
 			OK:      ex(filepath.Join(root, ".metadata", "agent", "PROJECT_MAP.md")),
 			Finding: ".metadata/agent/PROJECT_MAP.md missing",
@@ -372,14 +390,14 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 		},
 		testsCheck(root),
 		{
-			ID: "ci", Name: "CI", Severity: "warn", Weight: 10,
+			ID: "ci", Name: "CI", Severity: "warn",
 			Detail:  "continuous integration",
 			OK:      ex(filepath.Join(root, ".github", "workflows")),
 			Finding: "no workflow under .github/workflows",
 			Remedy:  "add a workflow under .github/workflows",
 		},
 		{
-			ID: "license", Name: "License", Severity: "warn", Weight: 10,
+			ID: "license", Name: "License", Severity: "warn",
 			Detail:  "license file",
 			OK:      ex(filepath.Join(root, "LICENSE")) || ex(filepath.Join(root, "LICENSE.md")),
 			Finding: "LICENSE missing",
@@ -400,8 +418,8 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 			gitInitOwner(root) == "rivu"
 		checks = append(checks, Check{
 			ID: "git_exclusivity", Name: "Git exclusivity", Severity: "warn",
-			OK:      !doubleInit,
-			Weight:  0, // informational: never changes the score
+			OK: !doubleInit,
+			// informational: only scores if [health].weights says so
 			Detail:  "single git owner",
 			Finding: "possible double-init, verify history (.git + bridge marker + git_init_owner=rivu)",
 			Remedy:  "verify history (.git + bridge marker + git_init_owner=rivu)",
@@ -412,6 +430,12 @@ func Run(p registry.Project, scaffoldMark string, staleDays int) Report {
 	}
 	if c, ok := dirtyTreeCheck(root); ok {
 		checks = append(checks, c)
+	}
+	// Every score contribution comes from [health].weights (D-05):
+	// nil = spec defaults, a set map = exactly what config.Validate
+	// signed off (sum 100), keys it omits contribute 0.
+	for i := range checks {
+		checks[i].Weight = weightFor(weights, checks[i].ID)
 	}
 	score := 0
 	for i := range checks {
