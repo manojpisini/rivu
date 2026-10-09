@@ -12,6 +12,8 @@ there into a local SQLite registry, and from then on you create, open, audit
 and regroup projects by name — headlessly from scripts or interactively in
 the terminal.
 
+![Rivu TUI](media/tui-demo.gif)
+
 ## Quickstart (60 seconds)
 
 ```bash
