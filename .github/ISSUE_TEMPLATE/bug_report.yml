@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Rivu misbehaved
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues use the
+        [security advisory form](https://github.com/manojpisini/rivu/security/advisories/new)
+        instead of a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description, including the exact command or TUI action.
+      placeholder: 'rivu scan printed "warning: ..." but exited 0.'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Smallest sequence that shows the bug.
+      placeholder: |
+        1. rivu init
+        2. rivu source demo --dry-run
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: Exit 5 with the warning, per the scan contract.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: rivu version
+      description: Output of `rivu version --json`.
+      placeholder: '{"schema":1,"version":"v1.0.0","commit":"abc1234",...}'
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, distribution, terminal (e.g. Windows 11 / Windows Terminal, macOS 15 / iTerm2, Ubuntu 24.04 / tmux).
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs (`~/.rivu/logs/rivu.log` tail), sanitized workspace layout, screenshots. Never paste secret file contents.

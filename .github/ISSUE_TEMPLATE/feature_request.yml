@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement to Rivu
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that Rivu makes hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Include the command, key or screen you imagine, and how it fits the Flow/Source/Channel/Map/Bank/Delta vocabulary.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other designs you rejected.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      description: Anything touching the filesystem must respect spec §4.4.
+      options:
+        - label: This request never deletes or overwrites user files, and mutating actions stay Plan → confirm → Apply.
+          required: false
