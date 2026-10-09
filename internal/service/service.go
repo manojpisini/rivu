@@ -115,6 +115,16 @@ func (a *App) Scan() (ScanResult, error) {
 	return a.ScanContext(context.Background(), nil)
 }
 
+// mountWarn flags a workspace under /mnt/... — WSL's DrvFs and other
+// mounted filesystems scan slowly and renames can cross filesystems
+// (spec, WSL row). Advisory: the scan still runs.
+func mountWarn(root string) string {
+	if !strings.HasPrefix(filepath.ToSlash(root), "/mnt/") {
+		return ""
+	}
+	return "workspace under " + root + ": mounted filesystems scan slowly and renames may cross filesystems; keep projects on the native filesystem (for example ~/) when you can"
+}
+
 // ScanContext is Scan with cancellation and a per-directory progress
 // callback (TUI async scan). A cancelled walk returns before the
 // registry commit, so nothing is half-written.
@@ -128,6 +138,9 @@ func (a *App) ScanContext(ctx context.Context, progress func(dirs int)) (ScanRes
 	var warnings []string
 	roots := append([]string{a.Config.Workspace.Root}, a.Config.Workspace.SecondaryRoots...)
 	for i, root := range roots {
+		if w := mountWarn(root); w != "" {
+			warnings = append(warnings, w)
+		}
 		if e := ctx.Err(); e != nil {
 			return ScanResult{}, e
 		}
