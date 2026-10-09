@@ -81,14 +81,14 @@ Exit codes: `0` ok · `1` error · `2` usage · `3` not found · `4` needs
 | Keys | Action |
 | --- | --- |
 | `j` `k` / arrows, `pgup` `pgdn`, `ctrl+u` `ctrl+d`, `G`, `home` `end` | move in the list |
-| `tab` / `left` `right` | switch panel |
+| `tab` / `left` `right` | switch panel (in the sidebar, arrows step stages) |
 | `enter` | open (Current or the selected row) |
 | `/` `esc` | search / clear |
 | `space` | pick (multi-select) |
 | `d` `h` `a` `f` `A` | detail · doctor · Map report · flow · delta |
 | `x` | actions menu |
 | `y` `o` | copy path · reveal in file manager |
-| `1`-`5`, `u`, `n` | jump to stage · untriaged · source filter |
+| `1`-`5`, `u`, `n` | jump to stage · untriaged filter · new project (Source) |
 | `g` or `m` | Master Dashboard |
 | `s` `S` `L` `c` | stats · settings · logs · confluences |
 | `:` `?` `q` | command palette · help · quit |
