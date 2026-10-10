@@ -51,6 +51,32 @@ sboms:
   - id: syft
     artifacts: archive
 
+# Homebrew tap and Scoop bucket. Both target repos and the
+# HOMEBREW_TAP_TOKEN / SCOOP_TOKEN secrets (PATs with contents:write on
+# those repos) must exist before the first tagged release; while the
+# token env vars are absent the upload skips instead of failing.
+homebrew_casks:
+  - repository:
+      owner: manojpisini
+      name: homebrew-tap
+      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
+    homepage: https://github.com/manojpisini/rivu
+    description: Your project filesystem, mapped and flowing
+    binaries:
+      - rivu
+    # index (unlike .Env.X) tolerates an absent key under missingkey=error.
+    skip_upload: '{{ if not (index .Env "HOMEBREW_TAP_TOKEN") }}true{{ end }}'
+
+scoops:
+  - repository:
+      owner: manojpisini
+      name: scoop-bucket
+      token: '{{ index .Env "SCOOP_TOKEN" }}'
+    homepage: https://github.com/manojpisini/rivu
+    description: Your project filesystem, mapped and flowing
+    license: MIT
+    skip_upload: '{{ if not (index .Env "SCOOP_TOKEN") }}true{{ end }}'
+
 changelog:
   sort: asc
   filters:
