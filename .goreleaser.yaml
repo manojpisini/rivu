@@ -36,6 +36,21 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Signing runs as an explicit cosign keyless step in the tag workflow
+# (.github/workflows/release.yml), not through goreleaser `signs`:
+# the snapshot pipeline never skips signing (cmd/release.go only skips
+# announce/publish/validate), so in-config keyless signing would force
+# a sigstore device-flow login on every local `--snapshot` run. In CI
+# the OIDC identity is ambient (id-token: write), locally snapshots
+# stay unattended and unsigned.
+
+# SBOM (SPDX JSON) per archive, produced with syft; the tag workflow
+# installs syft (anchore/sbom-action) and local machines need it on
+# PATH (`go install github.com/anchore/syft/cmd/syft@latest`).
+sboms:
+  - id: syft
+    artifacts: archive
+
 changelog:
   sort: asc
   filters:
