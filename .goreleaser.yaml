@@ -36,6 +36,11 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# rc/alpha/beta tags publish as GitHub prereleases; stable tags as full
+# releases (release.go switches on semver.Prerelease under "auto").
+release:
+  prerelease: auto
+
 # Signing runs as an explicit cosign keyless step in the tag workflow
 # (.github/workflows/release.yml), not through goreleaser `signs`:
 # the snapshot pipeline never skips signing (cmd/release.go only skips
