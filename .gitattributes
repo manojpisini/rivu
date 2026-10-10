@@ -1,3 +1,7 @@
 # Golden files are compared byte-for-byte; keep them LF in the
 # working tree regardless of core.autocrlf.
 *.golden -text
+
+# Go sources stay LF so `gofmt -l` is meaningful on every platform —
+# a CRLF working tree makes gofmt list every file as unformatted.
+*.go text eol=lf
