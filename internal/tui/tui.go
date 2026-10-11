@@ -1398,13 +1398,44 @@ var asciiSwap = strings.NewReplacer(
 	"󰐿", "s", "󰒃", "a", "󰒾", "w", "󰋽", "r", "󰆊", "d", "󰋜", "h",
 )
 
+// commonEditors is the candidate list for PATH detection, ordered
+// roughly by "most likely to be what the user actually has".
+var commonEditors = []string{
+	"code", "codium", "subl", "sublime_text",
+	"vim", "nvim", "vi", "nano", "micro",
+	"emacs", "hx", "helix",
+	"gedit", "xed", "kate", "mousepad",
+	"notepad", "notepad++", "wordpad",
+	"open", // macOS: opens default GUI app
+}
+
+// detectEditors returns the subset of commonEditors found in PATH,
+// in candidate order. Empty when none are installed.
+func detectEditors() []string {
+	var found []string
+	for _, e := range commonEditors {
+		if _, err := exec.LookPath(e); err == nil {
+			found = append(found, e)
+		}
+	}
+	return found
+}
+
 // friendlyEditorErr (P10.03) rewords the common "editor binary not
-// installed" failure into an actionable hint; anything else passes
-// through untouched.
+// installed" failure into an actionable hint: it names editors that
+// ARE in PATH and points at the TUI Settings screen, so the user can
+// fix it without leaving the app.
 func friendlyEditorErr(err error) string {
 	var ee *exec.Error
 	if errors.As(err, &ee) {
-		return fmt.Sprintf("%q not found in PATH — set it with `rivu config set editors.default <editor>`", ee.Name)
+		alts := detectEditors()
+		if len(alts) > 0 {
+			// Suggest up to 3 alternatives plus the TUI path.
+			n := min(3, len(alts))
+			return fmt.Sprintf("%q not found — try: %s  (or press S → Editors to set it)",
+				ee.Name, strings.Join(alts[:n], ", "))
+		}
+		return fmt.Sprintf("%q not found in PATH — press S → Editors to set one, or `rivu config set editors.default <editor>`", ee.Name)
 	}
 	return err.Error()
 }
@@ -1560,7 +1591,7 @@ func (m Model) sidebar(width, height int) string {
 	b.WriteString("\n" + titleStyle.Render("WORKSPACE") + "\n")
 	b.WriteString(mutedStyle.Render(shorten(m.WorkspaceRoot, width-4)) + "\n")
 	b.WriteString("\n" + titleStyle.Render("QUICK ACTIONS") + "\n")
-	b.WriteString(mutedStyle.Render("r  rescan\n/  search\nd  detail\nh  doctor\na  map\nw  tree\nb  group lang\nf  flow\no  reveal\ny  copy path"))
+	b.WriteString(mutedStyle.Render("r  rescan\n/  search\nd  detail\nh  doctor\na  map\nw  tree\nb  group lang\nf  flow\no  reveal\ny  copy path\nS  settings"))
 	style := panelStyle
 	if m.FocusSidebar {
 		style = focusStyle
@@ -1837,14 +1868,43 @@ func (m Model) projectPanel(width, height int) string {
 }
 
 // onboardWelcome is the first-run card when the workspace simply has
-// nothing registered yet (P3.24): three concrete next steps.
+// nothing registered yet (P3.24): concrete next steps, plus detected
+// editors so the user knows what to put in editors.default.
 func (m Model) onboardWelcome() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("WELCOME") + "\n")
-	b.WriteString(mutedStyle.Render("Rivu maps your project filesystem.") + "\n\n")
+	b.WriteString(titleStyle.Render("WELCOME TO RIVU") + "\n\n")
+	b.WriteString(mutedStyle.Render("Your project filesystem, mapped and flowing.") + "\n\n")
+
+	b.WriteString(titleStyle.Render("GET STARTED") + "\n")
 	b.WriteString(selectedStyle.Render("1") + "  rivu source <path>   add your first project\n")
 	b.WriteString(selectedStyle.Render("2") + "  r                    rescan the workspace\n")
 	b.WriteString(selectedStyle.Render("3") + "  / search  ·  ?       find things, see all keys\n")
+	b.WriteString(selectedStyle.Render("4") + "  S                    open Settings (editor, theme, …)\n\n")
+
+	// Editor detection: show what's actually in PATH so the user can
+	// pick one for editors.default without guessing.
+	b.WriteString(titleStyle.Render("EDITOR") + "\n")
+	if ed := m.cfg.Editors.Default; ed != "" {
+		if _, err := exec.LookPath(ed); err == nil {
+			b.WriteString(valueStyle.Render("  "+ed) + mutedStyle.Render("  (default, found in PATH)\n\n"))
+		} else {
+			b.WriteString(badgeBad.Render("  "+ed) + mutedStyle.Render("  (default, not in PATH — press S → Editors)\n\n"))
+		}
+	}
+	if alts := detectEditors(); len(alts) > 0 {
+		n := min(5, len(alts))
+		b.WriteString(mutedStyle.Render("Detected in PATH: ") + valueStyle.Render(strings.Join(alts[:n], ", ")) + "\n")
+		b.WriteString(mutedStyle.Render("Set one via: S → Editors → default\n\n"))
+	} else if m.cfg.Editors.Default == "" {
+		b.WriteString(mutedStyle.Render("No editor detected. Install one (vim, nano, code) or set editors.default in Settings.\n\n"))
+	}
+
+	b.WriteString(titleStyle.Render("WORKSPACE") + "\n")
+	if m.WorkspaceRoot != "" {
+		b.WriteString(valueStyle.Render("  "+shorten(m.WorkspaceRoot, 60)) + "\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  Not set — press S → General → workspace.root\n"))
+	}
 	return b.String()
 }
 

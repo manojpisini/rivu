@@ -24,7 +24,7 @@ ALL 3   SOURCE 1   ACTIVE 1   MAINT 1   RESEARCH 0   DELTA 0   AVG HEALTH 64/100
 │ f  flow                    │ │                                                                        │ │                                                  │  
 │ o  reveal                  │ │                                                                        │ │                                                  │  
 │ y  copy path               │ │                                                                        │ │                                                  │  
-│                            │ │                                                                        │ │                                                  │  
+│ S  settings                │ │                                                                        │ │                                                  │  
 │                            │ │                                                                        │ │                                                  │  
 │                            │ │                                                                        │ │                                                  │  
 │                            │ │                                                                        │ │                                                  │  
