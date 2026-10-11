@@ -31,12 +31,12 @@ func TestDetailFullScreen(t *testing.T) {
 		t.Fatal("d must open the full-screen detail")
 	}
 	view := m.View()
-	for _, want := range []string{"Alpha", "[Bank:OK]", "[Map:Missing]", "[Health:42]", "rivu agent sync"} {
+	for _, want := range []string{"Alpha", "Bank:OK", "Map:Missing", "Health:42", "auto-builds"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("detail view missing %q", want)
 		}
 	}
-	if !strings.Contains(view, "rivu doctor") {
+	if !strings.Contains(view, "press h to run doctor") {
 		t.Error("low health check must offer the doctor remedy")
 	}
 
@@ -79,13 +79,45 @@ func TestDetailWithoutSelection(t *testing.T) {
 	}
 }
 
+// TestDetailFullOwnsScroll (P10.01): j/k in the full-screen detail move
+// the detail viewport, never the project list behind it.
+func TestDetailFullOwnsScroll(t *testing.T) {
+	m := detailModel(t, 90, 20)
+	m = update(t, m, runeKey("d"))
+	if !m.DetailFull {
+		t.Fatal("d must open detail")
+	}
+	cursor := m.Cursor
+	for range 5 {
+		m = update(t, m, runeKey("j"))
+	}
+	if m.Cursor != cursor {
+		t.Errorf("cursor moved from %d to %d behind the detail", cursor, m.Cursor)
+	}
+	if m.detailScroll == 0 {
+		t.Error("j must scroll the detail body")
+	}
+	m = update(t, m, runeKey("k"))
+	if m.detailScroll != 4 {
+		t.Errorf("k must scroll back, scroll = %d", m.detailScroll)
+	}
+	m = update(t, m, runeKey("G"))
+	if m.detailScroll == 0 {
+		t.Error("G must jump to the end (clamped at render)")
+	}
+	m = update(t, m, runeKey("g"))
+	if m.detailScroll != 0 {
+		t.Errorf("g must return to the top, scroll = %d", m.detailScroll)
+	}
+}
+
 // TestSideDetailBadges: at >=120 cols the side pane carries badges and
 // remedies too.
 func TestSideDetailBadges(t *testing.T) {
 	m := detailModel(t, 160, 45)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // focus the list
 	view := m.View()
-	for _, want := range []string{"PROJECT DETAILS", "[Git]", "[Bank:OK]", "[Map:Missing]", "rivu agent sync"} {
+	for _, want := range []string{"PROJECT DETAILS", "Git", "Bank:OK", "Map:Missing", "auto-builds"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("side detail missing %q", want)
 		}

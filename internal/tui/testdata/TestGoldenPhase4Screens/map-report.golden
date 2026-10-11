@@ -1,14 +1,16 @@
-MAP - Alpha  map: stale  agents: present
+BANK & MAP - Alpha  map: stale  agents: present
+BANK (.metadata — protected, create-if-missing)
+
 PROJECT_MAP.md
 # Alpha
 agent map line one
 agent map line two
 
-DIFF vs disk (a rebuilds):
+DIFF vs disk (i improves):
 - stale header
 + fresh header
 
 AGENTS.md (create-if-missing, never overwritten)
 agents stay create-if-missing
 
-line 1/11 - up/down scroll - a rebuild - esc back
+line 1/13 - up/down scroll - i improve - e refine in editor - esc back

@@ -669,7 +669,7 @@ func TestSourceDryRunError(t *testing.T) {
 	if r.src.plan != nil || r.src.loading {
 		t.Fatalf("failed preview: plan=%v loading=%v", r.src.plan, r.src.loading)
 	}
-	if len(r.errs) == 0 || !strings.Contains(r.errs[0], "could not build the plan") {
+	if len(r.errs) == 0 || !strings.Contains(r.errs[0].Text, "could not build the plan") {
 		t.Errorf("errs = %v, want the plan failure", r.errs)
 	}
 	if !strings.Contains(r.View(), "plan unavailable") {
@@ -714,7 +714,7 @@ func TestSourceApplyError(t *testing.T) {
 	if r.screen != ScreenDashboard {
 		t.Errorf("screen = %s, want dashboard after the failure", screenNames[r.screen])
 	}
-	if len(r.errs) == 0 || !strings.Contains(r.errs[0], "disk full") {
+	if len(r.errs) == 0 || !strings.Contains(r.errs[0].Text, "disk full") {
 		t.Errorf("errs = %v, want the apply failure", r.errs)
 	}
 	if r.pendingJump != "" || r.dashboard.DetailFull {

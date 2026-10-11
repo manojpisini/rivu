@@ -71,7 +71,7 @@ func TestCopyRevealOutcomesReachToasts(t *testing.T) {
 		t.Fatalf("copy ok toast = %+v", r.toasts)
 	}
 	r, _ = upd(t, r, copyDoneMsg{err: errors.New("broken pipe")})
-	if len(r.errs) == 0 || !strings.Contains(r.errs[len(r.errs)-1], "broken pipe") {
+	if len(r.errs) == 0 || !strings.Contains(r.errs[len(r.errs)-1].Text, "broken pipe") {
 		t.Fatalf("copy failure must be sticky: %v", r.errs)
 	}
 
@@ -81,7 +81,7 @@ func TestCopyRevealOutcomesReachToasts(t *testing.T) {
 		t.Fatalf("reveal ok toast = %+v cmd=%v", r.toasts, cmd)
 	}
 	r, _ = upd(t, r, revealDoneMsg{path: `C:\ws\demo`, err: errors.New("no xdg-open")})
-	if len(r.errs) < 2 || !strings.Contains(r.errs[len(r.errs)-1], "no xdg-open") {
+	if len(r.errs) < 2 || !strings.Contains(r.errs[len(r.errs)-1].Text, "no xdg-open") {
 		t.Fatalf("reveal failure must be sticky: %v", r.errs)
 	}
 }

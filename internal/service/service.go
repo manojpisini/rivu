@@ -175,6 +175,34 @@ func (a *App) ScanContext(ctx context.Context, progress func(dirs int)) (ScanRes
 			}
 		}
 	}
+	// P10.05: auto-build Bank + Map for registered, on-disk projects
+	// missing them — no separate agent step. Gated by the existing
+	// [automation] flags (create_bank_by_default / build_map_by_default,
+	// both true by default); failures become warnings, never abort the
+	// scan.
+	if a.Config.Automation.CreateBank || a.Config.Automation.BuildMap {
+		if ps, lerr := a.Registry.List(); lerr == nil {
+			for _, p := range ps {
+				if _, serr := os.Stat(p.Path); serr != nil {
+					continue
+				}
+				if a.Config.Automation.CreateBank && !p.HasBank {
+					if berr := bank.Build(p, "rivu", bank.Meta{}); berr != nil {
+						warnings = append(warnings, fmt.Sprintf("bank for %s: %v", p.Slug, berr))
+						continue
+					}
+				}
+				if a.Config.Automation.BuildMap && !p.HasMap {
+					if merr := mapgen.Build(p, a.Config.Scanner.Ignore); merr != nil {
+						warnings = append(warnings, fmt.Sprintf("map for %s: %v", p.Slug, merr))
+						continue
+					}
+				}
+				_ = a.Registry.UpdateFlags(p.ID, true, true)
+				_ = a.Registry.LogActivity(p.ID, "map_built")
+			}
+		}
+	}
 	return ScanResult{Projects: all, Warnings: warnings}, nil
 }
 
@@ -733,6 +761,26 @@ func (a *App) MapPreview(q string) (MapPreview, error) {
 	if stale {
 		diff = mapgen.Diff(string(mapDisk), want)
 	}
+	// Inventory the protected Bank files (P10.06): project.toml,
+	// overview.md, decisions.md, tasks.md, plus the generated agent pair.
+	var present, absent []string
+	for _, n := range []string{"project.toml", "overview.md", "decisions.md", "tasks.md"} {
+		if _, serr := os.Stat(filepath.Join(p.Path, ".metadata", n)); serr == nil {
+			present = append(present, n)
+		} else {
+			absent = append(absent, n)
+		}
+	}
+	if agentsErr == nil {
+		present = append(present, "agent/AGENTS.md")
+	} else {
+		absent = append(absent, "agent/AGENTS.md")
+	}
+	if mapErr == nil {
+		present = append(present, "agent/PROJECT_MAP.md")
+	} else {
+		absent = append(absent, "agent/PROJECT_MAP.md")
+	}
 	return MapPreview{
 		Project:       p,
 		AgentsBody:    string(agentsDisk),
@@ -740,6 +788,8 @@ func (a *App) MapPreview(q string) (MapPreview, error) {
 		AgentsMissing: missing,
 		MapStale:      stale,
 		Diff:          diff,
+		BankPresent:   present,
+		BankMissing:   absent,
 	}, nil
 }
 

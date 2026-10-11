@@ -18,24 +18,48 @@ var (
 	badgeText   = lipgloss.NewStyle().Foreground(theme.Text)
 )
 
-// badge renders [label] in the given style.
+// badge renders an icon + label in the given style (P10.04: Nerd
+// Font glyph, colour carries the state).
 func badge(style lipgloss.Style, label string) string {
-	return style.Render("[" + label + "]")
+	return style.Render(label)
+}
+
+func iconBadge(style lipgloss.Style, icon, label string) string {
+	return style.Render(icon + " " + label)
+}
+
+// stageIcon maps a Flow stage to its Nerd glyph (P10.04).
+func stageIcon(stage string) string {
+	switch stage {
+	case "active":
+		return iconActive
+	case "source":
+		return iconSource
+	case "maintenance":
+		return iconMaint
+	case "research":
+		return iconResearch
+	case "delta":
+		return iconDelta
+	default:
+		return iconMap
+	}
 }
 
 // stageBadge colours a Flow stage: source warns (untriaged), active is
 // good, research accents, everything else sits muted.
 func stageBadge(stage string) string {
 	label := strings.ToUpper(stage)
+	icon := stageIcon(stage)
 	switch stage {
 	case "active":
-		return badge(badgeGood, label)
+		return iconBadge(badgeGood, icon, label)
 	case "source":
-		return badge(badgeWarn, label)
+		return iconBadge(badgeWarn, icon, label)
 	case "research":
-		return badge(badgeAccent, label)
+		return iconBadge(badgeAccent, icon, label)
 	default:
-		return badge(badgeMuted, label)
+		return iconBadge(badgeMuted, icon, label)
 	}
 }
 
@@ -47,31 +71,31 @@ func languageBadge(lang string) string {
 	return badge(badgeText, strings.ToUpper(lang))
 }
 
-// gitBadge renders [Git]; colour alone carries presence.
+// gitBadge renders the git glyph; colour alone carries presence.
 func gitBadge(has bool) string {
 	if has {
-		return badge(badgeGood, "Git")
+		return iconBadge(badgeGood, iconGit, "Git")
 	}
-	return badge(badgeBad, "Git")
+	return iconBadge(badgeBad, iconGit, "Git")
 }
 
-// bankBadge renders [Bank:OK] / [Bank:missing].
+// bankBadge renders Bank:OK / Bank:missing.
 func bankBadge(has bool) string {
 	if has {
-		return badge(badgeGood, "Bank:OK")
+		return iconBadge(badgeGood, iconBank, "Bank:OK")
 	}
-	return badge(badgeBad, "Bank:missing")
+	return iconBadge(badgeBad, iconBank, "Bank:missing")
 }
 
-// mapBadge renders [Map:OK] / [Map:Missing].
+// mapBadge renders Map:OK / Map:Missing.
 func mapBadge(has bool) string {
 	if has {
-		return badge(badgeGood, "Map:OK")
+		return iconBadge(badgeGood, iconMap, "Map:OK")
 	}
-	return badge(badgeWarn, "Map:Missing")
+	return iconBadge(badgeWarn, iconMap, "Map:Missing")
 }
 
-// healthBadge renders [Health:72] using the spec 3.6 band edges:
+// healthBadge renders Health:72 using the spec 3.6 band edges:
 // >=70 good, 50-69 warn, <50 bad.
 func healthBadge(score int) string {
 	st := badgeBad
@@ -81,7 +105,7 @@ func healthBadge(score int) string {
 	case score >= 50:
 		st = badgeWarn
 	}
-	return badge(st, fmt.Sprintf("Health:%d", score))
+	return iconBadge(st, iconHealth, fmt.Sprintf("Health:%d", score))
 }
 
 // scoreBar renders a 0-100 score as a 20-cell bar (spec P4.13),

@@ -102,7 +102,7 @@ func TestMasterDashboardErrorAndEmpty(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("failed load must not queue work, got %v", cmd)
 	}
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "could not load the master dashboard: db locked") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "could not load the master dashboard: db locked") {
 		t.Fatalf("errs = %v, want the sticky failure", r.errs)
 	}
 
@@ -160,7 +160,7 @@ func TestAttentionEnterJumpsToFix(t *testing.T) {
 	}
 	r.dashboard.Width, r.dashboard.Height = 90, 30
 	view := r.dashboard.View()
-	if !strings.Contains(view, "FIX") || !strings.Contains(view, "then a again to rebuild Bank + Map") {
+	if !strings.Contains(view, "FIX") || !strings.Contains(view, "then i to improve") {
 		t.Errorf("detail view missing the pre-highlighted fix in %q", view)
 	}
 

@@ -62,6 +62,7 @@ type Model struct {
 	Current        registry.Project
 	HasCurrent     bool
 	DetailFull     bool
+	detailScroll   int    // full-screen detail viewport offset (P10.01)
 	FixKey         string // attention bucket to pre-highlight in detail (P4.18)
 	search         textinput.Model
 	help           help.Model
@@ -186,12 +187,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Full-screen detail: esc/q/d go back, ctrl+c still quits.
+		// Full-screen detail owns navigation (P10.01): j/k/up/down scroll
+		// the body — the project list behind must not move — esc/q/d go
+		// back, ctrl+c still quits. Everything else (h/a/r/c/enter) still
+		// reaches the main switch for the detail actions.
 		if m.DetailFull {
 			switch x.String() {
 			case "esc", "q", "d":
 				m.DetailFull = false
 				m.FixKey = ""
+				return m, nil
+			case "up", "k":
+				m.detailScroll = max(0, m.detailScroll-1)
+				return m, nil
+			case "down", "j":
+				m.detailScroll++
+				return m, nil
+			case "pgup":
+				m.detailScroll = max(0, m.detailScroll-10)
+				return m, nil
+			case "pgdown":
+				m.detailScroll += 10
+				return m, nil
+			case "g":
+				m.detailScroll = 0
+				return m, nil
+			case "G":
+				m.detailScroll = 1 << 30 // clamped at render
 				return m, nil
 			}
 		}
@@ -212,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(x, keys.Detail):
 			if _, ok := m.selectedProject(); ok {
 				m.DetailFull = true
+				m.detailScroll = 0
 				m.FixKey = ""
 			} else {
 				m.Status = "Select a project to view its details"
@@ -480,7 +503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyScanDone(x)
 	case editorDoneMsg:
 		if x.err != nil {
-			return m, ShowToast(Toast{Level: "bad", Text: "editor for " + x.slug + " failed: " + x.err.Error()})
+			return m, ShowToast(Toast{Level: "bad", Text: "editor for " + x.slug + " failed: " + friendlyEditorErr(x.err)})
 		}
 		// Refresh on return: the editor may have touched files or git.
 		return m, listCmd(m.svc)
@@ -1266,7 +1289,21 @@ var asciiSwap = strings.NewReplacer(
 	"✓", "+", "×", "x", "•", ".",
 	"█", "#", "░", ".",
 	"▁", "_", "▂", "_", "▃", "_", "▄", "_", "▅", "_", "▆", "_", "▇", "_",
+	// Nerd Font glyphs (P10.04) -> width-1 letters.
+	"󰊠", "g", "󰟀", "b", "󰉺", "m",
+	"󰐿", "s", "󰒃", "a", "󰒾", "w", "󰋽", "r", "󰆊", "d", "󰋜", "h",
 )
+
+// friendlyEditorErr (P10.03) rewords the common "editor binary not
+// installed" failure into an actionable hint; anything else passes
+// through untouched.
+func friendlyEditorErr(err error) string {
+	var ee *exec.Error
+	if errors.As(err, &ee) {
+		return fmt.Sprintf("%q not found in PATH — set it with `rivu config set editors.default <editor>`", ee.Name)
+	}
+	return err.Error()
+}
 
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
@@ -1692,14 +1729,25 @@ func (m Model) detailsPanel(width, height int) string {
 	return panelStyle.Width(width - 2).Height(height - 2).Render(body)
 }
 
-// detailFullView is the full-screen detail route (spec 3.4), used when
-// the terminal is narrower than the 120-col side layout or on `d`.
+// detailFullView is the full-screen detail route (spec 3.4): a wide
+// panel that fills the terminal height and scrolls its own body
+// (detailScroll) — the list behind never moves (P10.01).
 func (m Model) detailFullView() string {
 	p, _ := m.selectedProject()
-	body := m.detailBody(p, min(m.Width-8, 76))
-	actions := mutedStyle.Render("[enter] open  [h] doctor  [a] map report  [r] rescan  [d/esc] back")
+	width := min(m.Width-4, 100)
+	inner := width - 4
+	body := m.detailBody(p, inner)
+	actions := mutedStyle.Render("[enter] open  [h] doctor  [a] bank & map  [r] rescan  [d/esc] back")
 	actions += "\n" + mutedStyle.Render("[c] confluences")
-	box := panelStyle.Render(body + "\n" + actions)
+	lines := strings.Split(body+"\n\n"+actions, "\n")
+	rows := max(8, m.Height-4)
+	start := min(max(m.detailScroll, 0), max(0, len(lines)-rows))
+	end := min(start+rows, len(lines))
+	viewport := strings.Join(lines[start:end], "\n")
+	if len(lines) > rows {
+		viewport += "\n" + mutedStyle.Render(fmt.Sprintf("↑↓ scroll %d–%d/%d", start+1, end, len(lines)))
+	}
+	box := panelStyle.Width(width).Height(rows).Render(viewport)
 	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
 }
 
@@ -1708,7 +1756,7 @@ func (m Model) detailFullView() string {
 func fixHint(key string) string {
 	switch key {
 	case "missing_map", "missing_bank":
-		return "press a to open the map report, then a again to rebuild Bank + Map"
+		return "press a to open Bank & Map, then i to improve (or r to rescan — scan auto-builds)"
 	case "mismatch_missing", "unregistered", "stale":
 		return "press r to rescan the workspace"
 	case "missing_git":
@@ -1756,10 +1804,10 @@ func detailChecks(p registry.Project) []string {
 		}
 	}
 	check(p.HasGit, "Git initialized", "Git missing — run `git init` in the project folder")
-	check(p.HasBank, "Bank present", "Bank missing — run `rivu doctor "+p.Slug+"` to audit")
-	check(p.HasMap, "Map built", "Map missing — run `rivu agent sync "+p.Slug+"`")
+	check(p.HasBank, "Bank present", "Bank missing — press r to rescan (auto-builds)")
+	check(p.HasMap, "Map built", "Map missing — press r to rescan (auto-builds)")
 	check(p.HealthScore >= 70, fmt.Sprintf("Health %d/100", p.HealthScore),
-		fmt.Sprintf("Health %d/100 is low — run `rivu doctor %s`", p.HealthScore, p.Slug))
+		fmt.Sprintf("Health %d/100 is low — press h to run doctor", p.HealthScore))
 	return out
 }
 

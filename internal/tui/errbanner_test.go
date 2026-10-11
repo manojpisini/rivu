@@ -7,6 +7,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// TestErrorsCollapseDuplicates (P10.03): the same failure arriving
+// repeatedly — e.g. one missing editor across many projects — collapses
+// into one row with a ×N count instead of flooding the overlay.
+func TestErrorsCollapseDuplicates(t *testing.T) {
+	r, _ := rootOf(t)
+	for range 7 {
+		r, _ = upd(t, r, ShowToast(Toast{Level: "bad", Text: `editor for trailmark failed: "code" not found in PATH`})())
+	}
+	r, _ = upd(t, r, ShowToast(Toast{Level: "bad", Text: "editor for 16-vault failed: other"})())
+	if len(r.errs) != 2 {
+		t.Fatalf("errs = %d entries, want 2 (collapsed)", len(r.errs))
+	}
+	if r.errs[0].N != 7 {
+		t.Errorf("trailmark N = %d, want 7", r.errs[0].N)
+	}
+	r, _ = upd(t, r, runeKey("e"))
+	v := r.View()
+	if !strings.Contains(v, "ERRORS (2)") || !strings.Contains(v, "(×7)") {
+		t.Fatalf("overlay must show collapsed counts, got %q", v)
+	}
+}
+
 func TestErrorStickyExpandAndClear(t *testing.T) {
 	r, _ := rootOf(t)
 	long := "scan failed: permission denied reading " + strings.Repeat("x", 120)

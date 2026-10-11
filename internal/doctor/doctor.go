@@ -296,7 +296,7 @@ func bankIncompleteCheck(root string) (Check, bool) {
 		OK:      false,
 		Detail:  "human docs present",
 		Finding: "Bank incomplete: missing " + strings.Join(missing, ", "),
-		Remedy:  "run `rivu agent sync {slug}` to create the missing Bank files",
+		Remedy:  "run `rivu scan` (auto-builds) or `rivu agent sync {slug}` to create the missing Bank files",
 		Fixable: "map",
 	}, true
 }
@@ -377,7 +377,7 @@ func Run(p registry.Project, scaffoldMark string, staleDays int, weights map[str
 			Detail:  "Rivu metadata",
 			OK:      ex(filepath.Join(root, ".metadata", "project.toml")),
 			Finding: ".metadata/project.toml missing",
-			Remedy:  "run `rivu agent sync {slug}` to rebuild Bank and Map",
+			Remedy:  "run `rivu scan` (auto-builds) or `rivu agent sync {slug}` to rebuild Bank and Map",
 			Fixable: "map",
 		},
 		{
@@ -385,7 +385,7 @@ func Run(p registry.Project, scaffoldMark string, staleDays int, weights map[str
 			Detail:  "agent-readable map",
 			OK:      ex(filepath.Join(root, ".metadata", "agent", "PROJECT_MAP.md")),
 			Finding: ".metadata/agent/PROJECT_MAP.md missing",
-			Remedy:  "run `rivu agent sync {slug}` to rebuild Bank and Map",
+			Remedy:  "run `rivu scan` (auto-builds) or `rivu agent sync {slug}` to rebuild Bank and Map",
 			Fixable: "map",
 		},
 		testsCheck(root),

@@ -10,8 +10,8 @@ import (
 )
 
 // TestMapReportOpensPreviewsAndScrolls: a from the list opens the report
-// with the on-disk bodies and diff, j/k scroll it, a inside rebuilds and
-// reloads, esc returns to the dashboard (P4.15).
+// with the on-disk bodies and diff, j/k scroll it, i inside improves and
+// reloads, esc returns to the dashboard (P4.15, P10.06).
 func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 	m, f := scanFixture(t)
 	f.MapPreviewRes = service.MapPreview{
@@ -33,7 +33,7 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		t.Fatalf("screen = %v, want map report", r.screen)
 	}
 	v := r.View()
-	for _, want := range []string{"MAP - ", "map: stale", "PROJECT_MAP.md", "line one"} {
+	for _, want := range []string{"BANK & MAP - ", "map: stale", "PROJECT_MAP.md", "line one"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("report view missing %q in %q", want, v)
 		}
@@ -41,7 +41,7 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 	// the diff and AGENTS sections live below the first window: assert
 	// them on the full body, then scroll toward them
 	all := strings.Join(r.mapLines(), "\n")
-	for _, want := range []string{"DIFF vs disk (a rebuilds):", "- old header", "+ new header", "AGENTS.md"} {
+	for _, want := range []string{"DIFF vs disk (i improves):", "- old header", "+ new header", "AGENTS.md"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("report body missing %q in %q", want, all)
 		}
@@ -61,8 +61,8 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		t.Fatalf("scroll = %d, want 0 after k", r.mapScroll)
 	}
 
-	// a inside the report rebuilds AND reloads the preview
-	r, cmd = upd(t, r, keyR('a'))
+	// i inside the report improves (rebuilds) AND reloads the preview
+	r, cmd = upd(t, r, keyR('i'))
 	batch, ok := cmd().(tea.BatchMsg)
 	if !ok {
 		t.Fatalf("rebuild returned %T, want a batch", cmd())
@@ -97,7 +97,7 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		}
 	}
 	tm, ok := toast.(toastMsg)
-	if !ok || tm.t.Level != "good" || !strings.Contains(tm.t.Text, "agent map built for a") {
+	if !ok || tm.t.Level != "good" || !strings.Contains(tm.t.Text, "bank + map improved for a") {
 		t.Fatalf("toast = %#v, want the build success", toast)
 	}
 	r, _ = upd(t, r, prev)
@@ -128,7 +128,7 @@ func TestMapReportErrorAndMissingFiles(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("failed preview must not queue work, got %v", cmd)
 	}
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "could not open the map report: db locked") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "could not open the map report: db locked") {
 		t.Fatalf("errs = %v, want the sticky failure", r.errs)
 	}
 
@@ -141,7 +141,7 @@ func TestMapReportErrorAndMissingFiles(t *testing.T) {
 		t.Fatalf("screen = %v, want the report", r.screen)
 	}
 	v := r.View()
-	if !strings.Contains(v, "(missing - press a to rebuild)") {
+	if !strings.Contains(v, "(missing - press i to improve)") {
 		t.Errorf("report = %q, want the rebuild hint", v)
 	}
 	if !strings.Contains(v, "line 1/") {

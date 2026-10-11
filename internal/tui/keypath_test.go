@@ -189,7 +189,7 @@ func TestStickyErrorsCapAtTen(t *testing.T) {
 	if len(r.errs) != 10 {
 		t.Fatalf("errs = %d, want capped at 10", len(r.errs))
 	}
-	if r.errs[0] != "copy path failed: err2" || r.errs[9] != "copy path failed: err11" {
+	if r.errs[0].Text != "copy path failed: err2" || r.errs[9].Text != "copy path failed: err11" {
 		t.Errorf("cap must keep the newest entries: %v", r.errs)
 	}
 }

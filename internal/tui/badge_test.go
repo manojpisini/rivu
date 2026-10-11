@@ -8,25 +8,26 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// TestBadgeFormats pins the badge vocabulary from P3.11:
-// [ACTIVE] [GO] [Git] [Bank:OK] [Map:Missing] [Health:72].
+// TestBadgeFormats pins the badge vocabulary (P10.04: Nerd glyph +
+// label, colour carries state): ACTIVE GO Git Bank:OK Map:Missing
+// Health:72.
 func TestBadgeFormats(t *testing.T) {
 	cases := []struct{ got, want string }{
-		{stageBadge("active"), "[ACTIVE]"},
-		{stageBadge("source"), "[SOURCE]"},
-		{stageBadge("research"), "[RESEARCH]"},
-		{stageBadge("maintenance"), "[MAINTENANCE]"},
-		{stageBadge("delta"), "[DELTA]"},
-		{languageBadge("go"), "[GO]"},
-		{languageBadge(""), "[UNKNOWN]"},
-		{gitBadge(true), "[Git]"},
-		{gitBadge(false), "[Git]"},
-		{bankBadge(true), "[Bank:OK]"},
-		{bankBadge(false), "[Bank:missing]"},
-		{mapBadge(true), "[Map:OK]"},
-		{mapBadge(false), "[Map:Missing]"},
-		{healthBadge(72), "[Health:72]"},
-		{healthBadge(0), "[Health:0]"},
+		{stageBadge("active"), iconActive + " ACTIVE"},
+		{stageBadge("source"), iconSource + " SOURCE"},
+		{stageBadge("research"), iconResearch + " RESEARCH"},
+		{stageBadge("maintenance"), iconMaint + " MAINTENANCE"},
+		{stageBadge("delta"), iconDelta + " DELTA"},
+		{languageBadge("go"), "GO"},
+		{languageBadge(""), "UNKNOWN"},
+		{gitBadge(true), iconGit + " Git"},
+		{gitBadge(false), iconGit + " Git"},
+		{bankBadge(true), iconBank + " Bank:OK"},
+		{bankBadge(false), iconBank + " Bank:missing"},
+		{mapBadge(true), iconMap + " Map:OK"},
+		{mapBadge(false), iconMap + " Map:Missing"},
+		{healthBadge(72), iconHealth + " Health:72"},
+		{healthBadge(0), iconHealth + " Health:0"},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

@@ -112,7 +112,7 @@ type Root struct {
 	hasCurrent   bool
 	toasts       []Toast
 	confirms     []confirm
-	errs         []string
+	errs         []errEntry
 	errExpand    bool
 	doctorRes    []doctor.Report
 	doctorQ      string
@@ -339,14 +339,14 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, cmd
 	case mapDoneMsg:
 		if r.screen == ScreenMap {
-			// Rebuild from inside the report: toast like the dashboard
+			// Improve from inside the report: toast like the dashboard
 			// path, then refresh the preview and HasMap flags together.
 			r.dashboard.Status = ""
 			if x.err != nil {
-				return r.pushToast(Toast{Level: "bad", Text: "agent map failed for " + x.q + ": " + x.err.Error()})
+				return r.pushToast(Toast{Level: "bad", Text: "improve failed for " + x.q + ": " + x.err.Error()})
 			}
 			return r, tea.Batch(
-				ShowToast(Toast{Level: "good", Text: "agent map built for " + x.q}),
+				ShowToast(Toast{Level: "good", Text: "bank + map improved for " + x.q}),
 				mapPreviewCmd(r.svc, x.q),
 				r.loadProjects(),
 			)
@@ -739,12 +739,27 @@ func (r Root) updateConfirm(msg tea.KeyMsg, c confirm) (tea.Model, tea.Cmd) {
 	return r, nil // swallow every other key while a modal is open
 }
 
+// errEntry is one sticky error with a repeat count (P10.03): the same
+// failure arriving N times collapses into one row instead of flooding
+// the overlay.
+type errEntry struct {
+	Text string
+	N    int
+}
+
 // pushToast queues a transient line: errors are sticky (kept until the
 // user clears them with `x` in the `e` overlay — never lost behind a
-// redraw), everything else expires after 3 s.
+// redraw), everything else expires after 3 s. Identical error texts
+// collapse into the existing entry with N++ (P10.03).
 func (r Root) pushToast(t Toast) (tea.Model, tea.Cmd) {
 	if t.Level == "bad" {
-		r.errs = append(r.errs, t.Text)
+		for i := range r.errs {
+			if r.errs[i].Text == t.Text {
+				r.errs[i].N++
+				return r, nil
+			}
+		}
+		r.errs = append(r.errs, errEntry{Text: t.Text, N: 1})
 		// ponytail: cap at 10 — raise only if errors start vanishing in practice
 		if len(r.errs) > 10 {
 			r.errs = r.errs[len(r.errs)-10:]
@@ -895,7 +910,11 @@ func (r Root) render() string {
 // errBannerView is the one-line sticky error notice; full text lives in
 // the `e` overlay. Width 0 means "not measured yet" — no truncation.
 func (r Root) errBannerView() string {
-	first := r.errs[0]
+	e := r.errs[0]
+	first := e.Text
+	if e.N > 1 {
+		first += fmt.Sprintf(" (×%d)", e.N)
+	}
 	if r.width > 0 {
 		first = shorten(first, max(1, r.width-14))
 	}
@@ -906,14 +925,18 @@ func (r Root) errBannerView() string {
 	return r.styleErr.Render(fmt.Sprintf(" %s%s  [e expand]", first, extra))
 }
 
-// errExpandView lists every sticky error in full, wrapped to width.
+// errExpandView lists every sticky error in full, wrapped to width,
+// with the repeat count folded into each row (P10.03).
 func (r Root) errExpandView() string {
 	var b strings.Builder
 	b.WriteString(r.styleTitle.Render(fmt.Sprintf("ERRORS (%d)", len(r.errs))))
 	for _, e := range r.errs {
-		text := e
+		text := e.Text
+		if e.N > 1 {
+			text += fmt.Sprintf("  (×%d)", e.N)
+		}
 		if r.width > 0 {
-			text = ansi.Wrap(e, max(20, r.width-8), "")
+			text = ansi.Wrap(text, max(20, r.width-8), "")
 		}
 		b.WriteString("\n\n" + text)
 	}
@@ -936,6 +959,15 @@ func (r Root) doctorView() string {
 		b.WriteString("\n" + r.styleMuted.Render("esc back"))
 		return b.String()
 	}
+	failing := 0
+	for _, rep := range r.doctorRes {
+		for _, c := range rep.Checks {
+			if !c.OK {
+				failing++
+			}
+		}
+	}
+	b.WriteString("\n" + r.styleMuted.Render(fmt.Sprintf("%d projects · %d failing checks", len(r.doctorRes), failing)))
 	for _, rep := range r.doctorRes {
 		if rep.Missing {
 			b.WriteString("\n\n" + rep.Project.Name + "  " + r.styleErr.Render("[MISSING] ") + r.styleMuted.Render("folder not found — restore it or re-add the project"))
@@ -956,14 +988,18 @@ func (r Root) doctorView() string {
 				if c.Severity == "error" {
 					mark = " ✗ "
 				}
-				line = r.styleErr.Render(mark) + c.Name + "  " + text
+				line = r.styleErr.Render(mark) + c.Name + " " + text
 			}
+			// P10.02: wrap, never truncate — remedies must stay readable.
 			if r.width > 0 {
-				line = shorten(line, max(1, r.width-2))
+				line = ansi.Wrap(line, max(20, r.width-2), "")
 			}
 			b.WriteString("\n" + line)
 			if !c.OK && c.Remedy != "" {
 				fix := strings.ReplaceAll(c.Remedy, "{slug}", rep.Project.Slug)
+				if r.width > 0 {
+					fix = ansi.Wrap(fix, max(20, r.width-8), "")
+				}
 				b.WriteString("\n" + r.styleMuted.Render("   fix: "+fix))
 			}
 		}
@@ -972,15 +1008,25 @@ func (r Root) doctorView() string {
 	return b.String()
 }
 
-// mapKeys gives the Map report its own keys (P4.15): scroll the
-// preview, "a" rebuilds the map and reloads the report.
+// mapKeys gives the Bank & Map screen its own keys (P4.15, P10.06):
+// scroll the preview, "i"/"a" improve (rebuild Bank + Map), "e" refine
+// opens overview.md in the editor for manual curation.
 func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch x.String() {
-	case "a":
+	case "i", "a":
 		if r.svc == nil {
-			return r.pushToast(Toast{Level: "bad", Text: "Agent map unavailable: no service in this session"})
+			return r.pushToast(Toast{Level: "bad", Text: "Bank & Map unavailable: no service in this session"})
 		}
 		return r, tea.Batch(mapCmd(r.svc, r.mapQ), mapPreviewCmd(r.svc, r.mapQ))
+	case "e":
+		if r.svc == nil {
+			return r.pushToast(Toast{Level: "bad", Text: "Refine unavailable: no service in this session"})
+		}
+		cmd, err := openCmd(r.svc, r.mapQ, "", r.dashboard.cfg.Editors.GUI)
+		if err != nil {
+			return r.pushToast(Toast{Level: "bad", Text: "refine failed: " + err.Error()})
+		}
+		return r, cmd
 	case "up", "k":
 		r.mapScroll = max(0, r.mapScroll-1)
 	case "down", "j":
@@ -1074,30 +1120,38 @@ func (r Root) statsKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 // files plus the diff a rebuild would apply (P4.15).
 func (r Root) mapLines() []string {
 	var lines []string
-	lines = append(lines, "PROJECT_MAP.md")
+	lines = append(lines, "BANK (.metadata — protected, create-if-missing)")
+	for _, n := range r.mapPrev.BankPresent {
+		lines = append(lines, "  "+iconPresent+" "+n)
+	}
+	for _, n := range r.mapPrev.BankMissing {
+		lines = append(lines, "  "+iconMissing+" "+n+" (missing)")
+	}
+	lines = append(lines, "", "PROJECT_MAP.md")
 	if r.mapPrev.MapBody == "" {
-		lines = append(lines, "(missing - press a to rebuild)")
+		lines = append(lines, "(missing - press i to improve)")
 	} else {
 		lines = append(lines, fileLines(r.mapPrev.MapBody)...)
 	}
 	if r.mapPrev.MapStale && len(r.mapPrev.Diff) > 0 {
-		lines = append(lines, "", "DIFF vs disk (a rebuilds):")
+		lines = append(lines, "", "DIFF vs disk (i improves):")
 		lines = append(lines, r.mapPrev.Diff...)
 	}
 	lines = append(lines, "", "AGENTS.md (create-if-missing, never overwritten)")
 	if r.mapPrev.AgentsBody == "" {
-		lines = append(lines, "(missing - press a to create)")
+		lines = append(lines, "(missing - press i to create)")
 	} else {
 		lines = append(lines, fileLines(r.mapPrev.AgentsBody)...)
 	}
 	return lines
 }
 
-// mapReportView is the Map report screen (spec screen 8): a preview of
-// PROJECT_MAP.md/AGENTS.md with a diff against disk, scrollable.
+// mapReportView is the Bank & Map screen (spec screen 8, P10.06): the
+// Bank file inventory plus a preview of PROJECT_MAP.md/AGENTS.md with
+// a diff against disk, scrollable.
 func (r Root) mapReportView() string {
 	var b strings.Builder
-	line := "MAP - " + r.mapPrev.Project.Name + "  "
+	line := "BANK & MAP - " + r.mapPrev.Project.Name + "  "
 	if r.mapPrev.MapStale {
 		line += r.styleErr.Render("map: stale")
 	} else {
@@ -1124,7 +1178,7 @@ func (r Root) mapReportView() string {
 		b.WriteString("\n" + ln)
 	}
 	b.WriteString("\n\n" + r.styleMuted.Render(fmt.Sprintf(
-		"line %d/%d - up/down scroll - a rebuild - esc back", start+1, len(lines))))
+		"line %d/%d - up/down scroll - i improve - e refine in editor - esc back", start+1, len(lines))))
 	return b.String()
 }
 

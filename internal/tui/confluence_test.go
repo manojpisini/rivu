@@ -92,7 +92,7 @@ func TestConfluenceLoadErrorStaysPut(t *testing.T) {
 	if r.screen != ScreenDashboard {
 		t.Fatalf("screen = %v, want dashboard after a failed load", r.screen)
 	}
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "could not load confluences: db locked") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "could not load confluences: db locked") {
 		t.Fatalf("errs = %v, want the sticky failure", r.errs)
 	}
 }
@@ -364,7 +364,7 @@ func TestMembershipApplyFailureIsSticky(t *testing.T) {
 	if r.conflEdit != nil {
 		t.Error("a failed apply must still close the overlay")
 	}
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "membership changed") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "membership changed") {
 		t.Fatalf("errs = %v, want the sticky failure", r.errs)
 	}
 }

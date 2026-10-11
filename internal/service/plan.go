@@ -78,6 +78,8 @@ type MapStatus struct {
 
 // MapPreview is the Map report payload (P4.15): the on-disk bodies,
 // what a rebuild would change, and a unified-style diff against disk.
+// BankPresent/BankMissing inventory the protected .metadata files
+// (P10.06).
 type MapPreview struct {
 	Project       registry.Project
 	AgentsBody    string // on-disk AGENTS.md, "" when missing
@@ -85,6 +87,8 @@ type MapPreview struct {
 	AgentsMissing bool
 	MapStale      bool
 	Diff          []string
+	BankPresent   []string // protected .metadata files that exist
+	BankMissing   []string // protected .metadata files that do not
 }
 
 // BulkMapResult is the typed outcome of MapBulk, mirroring

@@ -81,7 +81,7 @@ func TestStatsScreenErrorsAndEmpty(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("failed load must not queue work, got %v", cmd)
 	}
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "could not load stats: db locked") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "could not load stats: db locked") {
 		t.Fatalf("errs = %v, want the sticky failure", r.errs)
 	}
 
@@ -241,7 +241,7 @@ func TestStatsExportFailureIsSticky(t *testing.T) {
 		t.Fatal("enter must attempt the export")
 	}
 	r, _ = upd(t, r, cmd())
-	if len(r.errs) != 1 || !strings.Contains(r.errs[0], "export failed") {
+	if len(r.errs) != 1 || !strings.Contains(r.errs[0].Text, "export failed") {
 		t.Fatalf("errs = %v, want the sticky export failure", r.errs)
 	}
 }
