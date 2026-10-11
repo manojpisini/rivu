@@ -1565,18 +1565,29 @@ func (m Model) sidebar(width, height int) string {
 	if m.FocusSidebar {
 		style = focusStyle
 	}
-	out := style.Width(width - 2).Height(max(0, height-2)).Render(b.String())
-	// lipgloss only PADS to Height and never truncates, and a wrapped
-	// line still outgrows the budget: cap the rendered pane to height,
-	// keeping a proper bottom border (bubbletea cuts the frame's TOP
-	// lines otherwise and the header vanishes).
-	if height >= 2 {
-		if lines := strings.Split(out, "\n"); len(lines) > height {
-			empty := strings.Split(style.Width(width-2).Render(""), "\n")
-			out = strings.Join(append(lines[:height-1], empty[len(empty)-1]), "\n")
-		}
+	return padPanel(style, width, height, b.String())
+}
+
+// capPanel trims a rendered panel to at most `height` display lines,
+// keeping a proper bottom border. lipgloss only PADS to Height and
+// never truncates, and a wrapped line still outgrows the budget: when
+// the whole frame is taller than the terminal, bubbletea cuts the
+// TOP lines (standard_renderer.go) and headers vanish.
+func capPanel(out string, style lipgloss.Style, width, height int) string {
+	if height < 2 {
+		return out
 	}
-	return out
+	lines := strings.Split(out, "\n")
+	if len(lines) <= height {
+		return out
+	}
+	empty := strings.Split(style.Width(width).Render(""), "\n")
+	return strings.Join(append(lines[:height-1], empty[len(empty)-1]), "\n")
+}
+
+// padPanel renders content into a bordered panel of the given size.
+func padPanel(style lipgloss.Style, width, height int, content string) string {
+	return capPanel(style.Width(width-2).Height(max(0, height-2)).Render(content), style, width-2, height)
 }
 
 // tableCols lists the optional project-table columns that fit at the
@@ -1718,7 +1729,8 @@ func (m Model) projectPanel(width, height int) string {
 		langW   = 12
 		chanW   = 10
 	)
-	fixed := markerW + healthW
+	staleW := 8 // room for " missing"/" old" so rows never wrap
+	fixed := markerW + healthW + staleW
 	if cols.lang {
 		fixed += langW + 1
 	}
@@ -1795,6 +1807,9 @@ func (m Model) projectPanel(width, height int) string {
 		} else if looksOldPath(p.Path) {
 			line += mutedStyle.Render(" old")
 		}
+		// Belt and braces: never let a row exceed the panel's inner
+		// width — an over-wide line wraps and doubles the row's height.
+		line = ansi.Truncate(line, inner, "")
 		if i == m.Cursor {
 			line = selectedStyle.Render(line)
 		}
@@ -1818,7 +1833,7 @@ func (m Model) projectPanel(width, height int) string {
 	if !m.FocusSidebar {
 		style = focusStyle
 	}
-	return style.Width(width - 2).Height(height - 2).Render(b.String())
+	return padPanel(style, width, height, b.String())
 }
 
 // onboardWelcome is the first-run card when the workspace simply has
@@ -1858,7 +1873,7 @@ func (m Model) detailsPanel(width, height int) string {
 	if h := heatmapView(m.heat, width-4); h != "" && height >= 22 {
 		body += "\n\n" + h
 	}
-	return panelStyle.Width(width - 2).Height(height - 2).Render(body)
+	return padPanel(panelStyle, width, height, body)
 }
 
 // detailFullView is the full-screen detail route (spec 3.4): a wide
