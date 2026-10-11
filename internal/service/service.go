@@ -164,6 +164,17 @@ func (a *App) ScanContext(ctx context.Context, progress func(dirs int)) (ScanRes
 	if e != nil {
 		return ScanResult{}, fmt.Errorf("scan could not be committed: %w", e)
 	}
+	// The scanner does not descend into discovered project folders, so a
+	// registered project nested inside another (or under a symlinked
+	// root) is never rediscovered. Missing must mean the folder is gone,
+	// not "not on the walk" (dogfood: rust-core inside lithos-core).
+	if st, err := a.Registry.States(); err == nil {
+		for _, p := range st.Missing {
+			if _, serr := os.Stat(p.Path); serr == nil {
+				_ = a.Registry.MarkOnDisk(p.ID)
+			}
+		}
+	}
 	return ScanResult{Projects: all, Warnings: warnings}, nil
 }
 

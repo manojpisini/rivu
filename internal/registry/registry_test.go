@@ -1091,3 +1091,37 @@ func TestStatesFlagsRootChannelProject(t *testing.T) {
 		t.Errorf("stageMismatch = %+v, want only the root project", st.StageMismatch)
 	}
 }
+
+func TestMarkOnDiskClearsFalseMissing(t *testing.T) {
+	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	p := Project{ID: "id-nest", Name: "nested", Slug: "nested", Path: filepath.Join(t.TempDir(), "nested"), Channel: "sandbox", FlowStage: "source", Registered: true}
+	if err := r.Upsert(p); err != nil {
+		t.Fatal(err)
+	}
+	// Force the state a scan leaves behind for a nested project the
+	// walker never enters: registered, on disk, flagged missing.
+	if _, err := r.DB.Exec(`UPDATE projects SET on_disk=0 WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	st, err := r.States()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Missing) != 1 {
+		t.Fatalf("Missing = %v, want exactly the nested project", st.Missing)
+	}
+	if err := r.MarkOnDisk(p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = r.States(); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Missing) != 0 {
+		t.Fatalf("Missing after MarkOnDisk = %v, want none", st.Missing)
+	}
+}

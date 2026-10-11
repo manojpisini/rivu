@@ -408,6 +408,13 @@ func (r *Registry) SetHealth(id string, score int) error {
 	return err
 }
 
+// MarkOnDisk clears a false-missing flag: the folder is present even
+// though discovery did not walk it (nested projects, symlinked roots).
+func (r *Registry) MarkOnDisk(id string) error {
+	_, err := r.DB.Exec(`UPDATE projects SET on_disk=1 WHERE id=?`, id)
+	return err
+}
+
 // Snapshot is one health_snapshots row: a score at a point in time.
 type Snapshot struct {
 	Score   int
