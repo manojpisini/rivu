@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-11
+
 ### Added
 
 - SQLite registry (pure-Go driver) with `PRAGMA user_version` migrations
@@ -70,3 +72,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the contradictory "Dirty tree working tree clean".
 
 [Unreleased]: https://github.com/manojpisini/rivu/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/manojpisini/rivu/releases/tag/v1.0.0

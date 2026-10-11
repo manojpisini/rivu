@@ -34,11 +34,12 @@ key reference, `:` for the command palette. Without a terminal attached,
 
 | Platform | Method |
 | --- | --- |
+| Windows, macOS, Linux | prebuilt archive from [GitHub Releases](https://github.com/manojpisini/rivu/releases) (plus `checksums.txt`, SBOM, cosign signature) |
 | Windows, macOS, Linux | `go install github.com/manojpisini/rivu/cmd/rivu@latest` (requires [Go 1.24+](https://go.dev/dl/)) |
 | Windows, macOS, Linux | from source: `git clone https://github.com/manojpisini/rivu.git && cd rivu && go build -o rivu ./cmd/rivu` |
 
-Packaged binaries (scoop, brew, apt) are not published yet — build from
-source until the first release tag.
+Homebrew and Scoop manifests are generated from each release once a
+tap is configured.
 
 ## Vocabulary
 

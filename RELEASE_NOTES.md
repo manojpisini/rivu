@@ -40,12 +40,16 @@ interactively in the terminal.
 
 ```bash
 go install github.com/manojpisini/rivu/cmd/rivu@latest   # Go 1.24+
-# or from source:
+# or grab an archive from the GitHub release page:
+#   https://github.com/manojpisini/rivu/releases
+# or build from source:
 git clone https://github.com/manojpisini/rivu.git && cd rivu && go build -o rivu ./cmd/rivu
 ```
 
-Packaged binaries (scoop, brew, apt) are not published yet — build from
-source until the first release tag.
+Every release ships archives for Linux (amd64/arm64), macOS
+(amd64/arm64) and Windows (amd64), plus `checksums.txt`, a cosign
+signature and SPDX SBOMs. Homebrew and Scoop manifests are generated
+from each release once a tap is configured.
 
 ## Quickstart
 
@@ -60,11 +64,10 @@ TUI keys, configuration, safety rules and FAQ.
 
 ## Upgrade
 
-Releases are pre-1.0 source builds; update with `git pull` (or
-reinstall at a tag), then:
+Grab the new archive from the release page (or reinstall with
+`go install github.com/manojpisini/rivu/cmd/rivu@latest`), then:
 
 ```bash
-go mod tidy && go test ./...
 rivu version               # should print the new version
 rivu scan                  # rescan reconciles the registry safely
 ```
