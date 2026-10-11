@@ -13,6 +13,7 @@ import (
 func dbCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "db",
+		Args:  cobra.NoArgs,
 		Short: "Back up and restore the registry as JSON",
 		Long: `Back up and restore the registry database as JSON.
 
@@ -23,6 +24,10 @@ registry with such a file after showing what it contains; it needs
 --yes to apply (Plan -> confirm -> Apply) and snapshots the current
 database to a .bak file first. Import never touches project folders
 (safety rule 1).`,
+		// Runnable help stub: without it cobra returns ErrHelp before
+		// Args validation, so a typo like `rivu db backup` would print
+		// help and exit 0 instead of failing like a root typo.
+		RunE: func(c *cobra.Command, _ []string) error { return c.Help() },
 	}
 	c.AddCommand(dbExportCmd(), dbImportCmd())
 	return c

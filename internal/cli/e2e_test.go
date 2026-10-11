@@ -147,6 +147,14 @@ func TestCLIJourney(t *testing.T) {
 	if code != 2 || out != "" || !strings.Contains(errOut, "unknown command") {
 		t.Errorf("unknown command: exit %d (want 2), stdout %q, stderr %q", code, out, errOut)
 	}
+	// A typo under a subcommand group must fail like a root typo, not
+	// print help and exit 0 (dogfood: `rivu db backup`).
+	for _, args := range [][]string{{"db", "backup"}, {"agent", "nope"}, {"config", "nope"}, {"confluence", "nope"}} {
+		code, out, errOut = run(args...)
+		if code != 2 || out != "" || !strings.Contains(errOut, "unknown command") {
+			t.Errorf("unknown group subcommand %v: exit %d (want 2), stdout %q, stderr %q", args, code, out, errOut)
+		}
+	}
 	code, out, errOut = run("path", "ghost")
 	if code != 3 || out != "" || !strings.Contains(errOut, "not found") {
 		t.Errorf("path ghost: exit %d (want 3), stdout %q, stderr %q", code, out, errOut)

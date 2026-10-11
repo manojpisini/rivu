@@ -13,7 +13,8 @@ import (
 )
 
 func configCmd() *cobra.Command {
-	c := &cobra.Command{Use: "config", Short: "Inspect or change configuration"}
+	c := &cobra.Command{Use: "config", Args: cobra.NoArgs, Short: "Inspect or change configuration",
+		RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
 	c.AddCommand(
 		configGetCmd(),
 		configSetCmd(),

@@ -36,6 +36,7 @@ func confluenceCmd() *cobra.Command {
 	var asJSON bool
 	c := &cobra.Command{
 		Use:   "confluence",
+		Args:  cobra.NoArgs,
 		Short: "Manage and browse Confluences",
 		Long: `Manage Confluences: named, cross-cutting groupings of projects.
 

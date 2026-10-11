@@ -10,7 +10,8 @@ import (
 )
 
 func mapCmd() *cobra.Command {
-	c := &cobra.Command{Use: "agent", Short: "Agent Map operations"}
+	c := &cobra.Command{Use: "agent", Args: cobra.NoArgs, Short: "Agent Map operations",
+		RunE: func(c *cobra.Command, _ []string) error { return c.Help() }}
 	c.AddCommand(mapSyncCmd())
 	return c
 }
