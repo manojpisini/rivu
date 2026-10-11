@@ -1,6 +1,9 @@
-# Rivu v1.0.0
+# Rivu v0.10.0-alpha.1
 
 **Your project filesystem, mapped and flowing.**
+
+> Pre-release (0.x alpha). APIs, schema and CLI flags may change before
+> v1.0.0. Feedback welcome.
 
 Rivu is a cross-platform Go CLI and Bubble Tea TUI that maps your project
 folders and keeps them flowing: point it at a workspace, it scans what is

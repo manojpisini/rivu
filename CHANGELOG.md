@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-10-11
+## [0.10.0-alpha.1] - 2026-10-11
 
 ### Added
 
@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated `cli.md` reference.
 - Cross-platform CI: lint, tests on Linux/macOS/Windows, race detector
   on Linux/macOS.
+- Dashboard readability pass (post-rc feedback): warm amber default
+  theme, health progress bars in list rows, language grouping (`b`),
+  workspace tree view (`w`), activity heatmap in the detail pane,
+  hide stale projects (`U`), fuzzy Flow channel→stage matching, and a
+  shallow file-extension census so fewer projects show "Unknown"
+  language.
 
 ### Changed
 
@@ -71,5 +77,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The health check reads "Git tree clean" for a clean working tree
   instead of the contradictory "Dirty tree working tree clean".
 
-[Unreleased]: https://github.com/manojpisini/rivu/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/manojpisini/rivu/releases/tag/v1.0.0
+[Unreleased]: https://github.com/manojpisini/rivu/compare/v0.10.0-alpha.1...HEAD
+[0.10.0-alpha.1]: https://github.com/manojpisini/rivu/releases/tag/v0.10.0-alpha.1
