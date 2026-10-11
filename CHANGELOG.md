@@ -61,5 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace scans no longer fail when separate projects share the same
   folder name/slug.
 - Rescans preserve the original registry identity for a project path.
+- A nested project (registered inside another project's folder) is no
+  longer reported missing when its folder is present.
+- A typo under a subcommand group (`rivu db backup`) now fails with
+  exit 2 like any unknown command, instead of printing help and
+  exiting 0.
+- The health check reads "Git tree clean" for a clean working tree
+  instead of the contradictory "Dirty tree working tree clean".
 
 [Unreleased]: https://github.com/manojpisini/rivu/compare/v1.0.0...HEAD

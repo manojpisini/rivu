@@ -265,7 +265,7 @@ func staleCheck(p registry.Project, staleDays int) (Check, bool) {
 		Detail:  fmt.Sprintf("activity within %dd", staleDays),
 		OK:      !stale,
 		Finding: fmt.Sprintf("no activity in %dd", staleDays),
-		Remedy:  "open the project, or move it to Delta if it is retired",
+		Remedy:  "work in it via rivu (open, scan), or move it to Delta if it is retired",
 	}
 	return c, true
 }
@@ -331,8 +331,8 @@ func dirtyTreeCheck(root string) (Check, bool) {
 		return Check{}, false
 	}
 	c := Check{
-		ID: "dirty_tree", Name: "Dirty tree", Severity: "warn",
-		Detail: "working tree clean", OK: true,
+		ID: "dirty_tree", Name: "Git tree", Severity: "warn",
+		Detail: "clean", OK: true,
 	}
 	if len(bytes.TrimSpace(out)) > 0 {
 		c.OK = false
