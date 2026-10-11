@@ -122,7 +122,7 @@ The knobs worth knowing:
 | `flow.source_sla_days` | `14` | how long `source` may sit untriaged |
 | `health.weights` | readme 20, git 15, bank 15, map 15, … | how health is scored |
 | `editors.default` | `code` (Windows) / `${EDITOR}` | what `rivu open` launches |
-| `appearance.theme` | `graphite-violet` | also `mono`, `light` |
+| `appearance.theme` | `graphite-amber` | also `graphite-violet`, `mono`, `light` |
 
 ## Safety
 

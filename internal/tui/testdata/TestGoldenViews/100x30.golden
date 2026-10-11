@@ -5,11 +5,11 @@ SCAN never
 │ FLOW                 │ │ ALL PROJECTS                                                      1/3 │  
 │                      │ │   NAME                                LANGUAGE     CHANNEL     HEALTH │  
 │ ▸ ALL             3  │ │ ───────────────────────────────────────────────────────────────────── │  
-│   SOURCE          1  │ │ › Beta                                rust                     61/100 │  
-│   ACTIVE          1  │ │   Gamma                               go                       44/100 │  
-│   MAINTENANCE     1  │ │   Alpha                               go                       88/100 │  
-│   RESEARCH        0  │ │                                                                       │  
-│   DELTA           0  │ │                                                                       │  
+│   SOURCE          1  │ │ › Beta                                rust                    █░░  61 │  
+│   ACTIVE          1  │ │ missing                                                               │  
+│   MAINTENANCE     1  │ │   Gamma                               go                      █░░  44 │  
+│   RESEARCH        0  │ │ missing                                                               │  
+│   DELTA           0  │ │   Alpha                               go                      ██░  88 │  
 │                      │ │                                                                       │  
 │ WORKSPACE            │ │                                                                       │  
 │ /w                   │ │                                                                       │  
@@ -20,10 +20,10 @@ SCAN never
 │ d  detail            │ │                                                                       │  
 │ h  doctor            │ │                                                                       │  
 │ a  map               │ │                                                                       │  
+│ w  tree              │ │                                                                       │  
+│ b  group lang        │ │                                                                       │  
 │ f  flow              │ │                                                                       │  
 │ o  reveal            │ │                                                                       │  
 │ y  copy path         │ │                                                                       │  
-│                      │ │                                                                       │  
-│                      │ │                                                                       │  
 ╰──────────────────────╯ ╰───────────────────────────────────────────────────────────────────────╯  
 tab switch panel • k up • j down • / search • esc clear filter • enter open • r refresh • q quit    

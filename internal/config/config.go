@@ -138,7 +138,7 @@ func Default() Config {
 	c.Bridge.ScaffoldMark = ".lode"
 	c.Templates.Default = "empty"
 	c.Keybindings.Profile = "default"
-	c.Appearance.Theme = "graphite-violet"
+	c.Appearance.Theme = "graphite-amber"
 	c.Appearance.Density = "comfortable"
 	d, _ := Dir()
 	c.Data.DBPath = filepath.Join(d, "rivu.db")

@@ -338,7 +338,11 @@ func ChannelForFlow(flow string) string {
 // stage mismatch so placement gets fixed with a move, never assumed.
 const RootChannel = "(root)"
 
-// FlowForChannel maps a workspace channel folder to its default Flow stage.
+// FlowForChannel maps a workspace channel folder to its default Flow
+// stage. Exact canonical names win; otherwise a case-insensitive
+// substring match lets real folder names ("Active Work", "90_delta",
+// "15_Archive") land on the right stage instead of everything falling
+// back to source (P11.08). Archive maps to delta — the ending stage.
 func FlowForChannel(c string) string {
 	switch c {
 	case "01_Active":
@@ -348,6 +352,17 @@ func FlowForChannel(c string) string {
 	case "03_Research":
 		return "research"
 	case "90_Delta":
+		return "delta"
+	}
+	lc := strings.ToLower(c)
+	switch {
+	case strings.Contains(lc, "active"):
+		return "active"
+	case strings.Contains(lc, "maintenance"):
+		return "maintenance"
+	case strings.Contains(lc, "research"):
+		return "research"
+	case strings.Contains(lc, "delta"), strings.Contains(lc, "archive"):
 		return "delta"
 	}
 	return "source"

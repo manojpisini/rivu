@@ -17,7 +17,7 @@ import (
 // frame. Runs for each theme because a theme must not be the thing
 // that carries meaning.
 func TestColourlessViewCarriesStatusText(t *testing.T) {
-	for _, name := range []string{"graphite-violet", "mono", "light"} {
+	for _, name := range []string{"graphite-amber", "graphite-violet", "mono", "light"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("NO_COLOR", "1")
 			svc := &fake.Service{}

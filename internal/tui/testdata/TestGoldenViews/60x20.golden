@@ -5,11 +5,11 @@ AVG HEALTH 64/100   CURRENT —   LAST SCAN never
 │ ALL PROJECTS                                       1/3 │  
 │   NAME                              CHANNEL     HEALTH │  
 │ ────────────────────────────────────────────────────── │  
-│ › Beta                                          61/100 │  
-│   Gamma                                         44/100 │  
-│   Alpha                                         88/100 │  
-│                                                        │  
-│                                                        │  
+│ › Beta                                         █░░  61 │  
+│ missing                                                │  
+│   Gamma                                        █░░  44 │  
+│ missing                                                │  
+│   Alpha                                        ██░  88 │  
 │                                                        │  
 │                                                        │  
 │                                                        │  

@@ -168,8 +168,8 @@ func TestNewRootThemeFromConfigAndFallback(t *testing.T) {
 	}
 	cfg.Appearance.Theme = "nope"
 	r = NewRoot(svc, cfg)
-	if r.theme != style.GraphiteViolet {
-		t.Fatal("unknown theme must fall back to graphite-violet")
+	if r.theme != style.GraphiteAmber {
+		t.Fatal("unknown theme must fall back to graphite-amber")
 	}
 	if len(r.toasts) != 1 || r.toasts[0].Level != "warn" {
 		t.Fatalf("toasts = %+v, want a warning about the theme", r.toasts)

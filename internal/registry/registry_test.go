@@ -571,6 +571,25 @@ func TestChannelFlowMapping(t *testing.T) {
 	}
 }
 
+// TestFlowForChannelFuzzy: real folder names land on the right stage
+// via case-insensitive substring match (P11.08).
+func TestFlowForChannelFuzzy(t *testing.T) {
+	for ch, flow := range map[string]string{
+		"Active Work":     "active",
+		"90_delta":        "delta",
+		"15_Archive":      "delta",
+		"My Maintenance":  "maintenance",
+		"playground":      "source",
+		"(root)":          "source",
+		"03_GitHub":       "source",
+		"Research + Docs": "research",
+	} {
+		if got := FlowForChannel(ch); got != flow {
+			t.Errorf("FlowForChannel(%q) = %q, want %q", ch, got, flow)
+		}
+	}
+}
+
 func TestTimeRoundTrip(t *testing.T) {
 	r, err := Open(filepath.Join(t.TempDir(), "rivu.db"))
 	if err != nil {

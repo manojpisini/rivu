@@ -44,6 +44,9 @@ type keyMap struct {
 	StageDigit   key.Binding
 	StagePrev    key.Binding
 	StageNext    key.Binding
+	GroupLang    key.Binding // toggle language grouping (P11.04)
+	HideStale    key.Binding // toggle old/missing filter (P11.07)
+	Tree         key.Binding // workspace tree view (P11.06)
 }
 
 // ShortHelp feeds the footer (help.Model.View).
@@ -55,7 +58,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.SwitchPanel, k.Up, k.Down, k.PageUp, k.PageDown, k.HalfUp, k.HalfDown, k.Bottom, k.Home, k.End, k.StageDigit, k.StagePrev, k.StageNext},
-		{k.Master, k.Stats, k.Settings, k.Logs, k.Search, k.Clear, k.Open, k.Detail, k.Confluence, k.Doctor, k.Map, k.Flow, k.Delta, k.Pick, k.Actions, k.Untriaged, k.Source, k.Refresh, k.Copy, k.Reveal},
+		{k.Master, k.Stats, k.Settings, k.Logs, k.Search, k.Clear, k.Open, k.Detail, k.Confluence, k.Doctor, k.Map, k.Tree, k.Flow, k.Delta, k.Pick, k.Actions, k.Untriaged, k.HideStale, k.GroupLang, k.Source, k.Refresh, k.Copy, k.Reveal},
 		{k.Help, k.Palette, k.Quit},
 	}
 }
@@ -99,4 +102,7 @@ var keys = keyMap{
 	StageDigit:   key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "switch stage")),
 	StagePrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("left", "prev stage")),
 	StageNext:    key.NewBinding(key.WithKeys("right"), key.WithHelp("right", "next stage")),
+	GroupLang:    key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "group by language")),
+	HideStale:    key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "hide old/missing")),
+	Tree:         key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "workspace tree")),
 }

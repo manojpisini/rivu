@@ -11,6 +11,7 @@ import (
 )
 
 var themes = map[string]Theme{
+	"graphite-amber":  GraphiteAmber,
 	"graphite-violet": GraphiteViolet,
 	"mono":            Mono,
 	"light":           Light,
@@ -40,7 +41,9 @@ func TestByName(t *testing.T) {
 		want    Theme
 		wantErr bool
 	}{
-		{"", GraphiteViolet, false},
+		{"", GraphiteAmber, false},
+		{"graphite-amber", GraphiteAmber, false},
+		{"Graphite-Amber ", GraphiteAmber, false},
 		{"graphite-violet", GraphiteViolet, false},
 		{"Graphite-Violet ", GraphiteViolet, false},
 		{"mono", Mono, false},

@@ -605,3 +605,57 @@ func TestSymlinkPolicy(t *testing.T) {
 		t.Errorf("loop guard: projects = %+v, want the same single project", got)
 	}
 }
+
+// TestCensusLangFallback: no manifest in the project, but source files
+// name the language (P11.03).
+func TestCensusLangFallback(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "scripts")
+	if err := os.MkdirAll(filepath.Join(p, "lib"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Root-level python + a subdirectory with more python: census says Python.
+	for _, f := range []string{"main.py", "util.py"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(p, "lib", "helper.py"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitkeep"), []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := censusLang(root); got != "Python" {
+		t.Fatalf("censusLang = %q, want Python", got)
+	}
+	// Empty directory: nothing recognisable.
+	if got := censusLang(t.TempDir()); got != "" {
+		t.Fatalf("censusLang(empty) = %q, want empty", got)
+	}
+}
+
+// TestScanCensusFillsLanguage: classify() uses the census only when no
+// marker named a language; git alone still discovers the project.
+func TestScanCensusFillsLanguage(t *testing.T) {
+	root := t.TempDir()
+	p := filepath.Join(root, "tool")
+	if err := os.MkdirAll(filepath.Join(p, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"a.rs", "b.rs", "c.py"} {
+		if err := os.WriteFile(filepath.Join(p, f), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := New(nil, 6).Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Language != "Rust" {
+		t.Fatalf("unexpected: %#v", got)
+	}
+}

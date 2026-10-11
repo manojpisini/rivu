@@ -48,9 +48,24 @@ type Theme struct {
 	Bad lipgloss.AdaptiveColor
 }
 
-// GraphiteViolet is the default theme (config: theme = "graphite-violet",
-// spec 3.10 visual direction): dark-first graphite with a light-terminal
-// variant so text keeps contrast where the terminal shows through.
+// GraphiteAmber is the default theme (config: theme = "graphite-amber"):
+// dark-first graphite with a warm amber accent — deliberately not the
+// purple/blue "agentic" look (P11.01). Light-terminal variant keeps
+// text contrast where the terminal shows through.
+var GraphiteAmber = Theme{
+	Bg:     lipgloss.AdaptiveColor{Dark: "#1b1b1e", Light: "#f5f5f7"},
+	Panel:  lipgloss.AdaptiveColor{Dark: "#232327", Light: "#ffffff"},
+	Border: lipgloss.AdaptiveColor{Dark: "#3c3c41", Light: "#d4d4da"},
+	Text:   lipgloss.AdaptiveColor{Dark: "#e4e4e8", Light: "#26262b"},
+	Muted:  lipgloss.AdaptiveColor{Dark: "#8a8a90", Light: "#6a6a72"},
+	Accent: lipgloss.AdaptiveColor{Dark: "#e0a050", Light: "#b45309"},
+	Good:   lipgloss.AdaptiveColor{Dark: "#4ec97a", Light: "#137333"},
+	Warn:   lipgloss.AdaptiveColor{Dark: "#e0b34e", Light: "#9a6700"},
+	Bad:    lipgloss.AdaptiveColor{Dark: "#e05a5a", Light: "#cf222e"},
+}
+
+// GraphiteViolet is the original violet-accent theme, kept selectable
+// (config: theme = "graphite-violet", spec 3.10 visual direction).
 var GraphiteViolet = Theme{
 	Bg:     lipgloss.AdaptiveColor{Dark: "#1b1b1e", Light: "#f5f5f7"},
 	Panel:  lipgloss.AdaptiveColor{Dark: "#232327", Light: "#ffffff"},
@@ -95,12 +110,14 @@ var Light = Theme{
 // the default and names are matched case-insensitively.
 func ByName(name string) (Theme, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "", "graphite-violet":
+	case "", "graphite-amber":
+		return GraphiteAmber, nil
+	case "graphite-violet":
 		return GraphiteViolet, nil
 	case "mono":
 		return Mono, nil
 	case "light":
 		return Light, nil
 	}
-	return Theme{}, fmt.Errorf("unknown theme %q: want graphite-violet, mono, or light", name)
+	return Theme{}, fmt.Errorf("unknown theme %q: want graphite-amber, graphite-violet, mono, or light", name)
 }

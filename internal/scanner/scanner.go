@@ -169,7 +169,104 @@ func classify(path string) (string, []string, int, bool) {
 			stack = append([]string{info.framework}, stack...)
 		}
 	}
+	// P11.03: no marker file named the language — fall back to a shallow
+	// extension census (project root + one level of subdirectories,
+	// junk dirs skipped, capped) so folders that hold source without a
+	// manifest stop showing as Unknown. Display-only: the census never
+	// adds discovery score.
+	if lang == "" {
+		lang = censusLang(path)
+	}
 	return lang, stack, score, strong
+}
+
+// extLangs maps a lowercase file extension to its display language for
+// the census fallback (P11.03). First match in census order wins on ties.
+var extLangs = map[string]string{
+	".go":    "Go",
+	".rs":    "Rust",
+	".py":    "Python",
+	".ts":    "TypeScript",
+	".tsx":   "TypeScript",
+	".js":    "JavaScript",
+	".jsx":   "JavaScript",
+	".mjs":   "JavaScript",
+	".java":  "Java",
+	".kt":    "Kotlin",
+	".kts":   "Kotlin",
+	".swift": "Swift",
+	".c":     "C/C++",
+	".h":     "C/C++",
+	".cpp":   "C/C++",
+	".cc":    "C/C++",
+	".hpp":   "C/C++",
+	".cs":    "C#",
+	".rb":    "Ruby",
+	".php":   "PHP",
+	".ex":    "Elixir",
+	".exs":   "Elixir",
+	".hs":    "Haskell",
+	".lua":   "Lua",
+	".r":     "R",
+	".jl":    "Julia",
+	".dart":  "Dart",
+	".scala": "Scala",
+	".sh":    "Shell",
+	".ps1":   "PowerShell",
+}
+
+// censusCap bounds the census walk so a huge vendored tree cannot
+// slow the scan (P11.03).
+const censusCap = 400
+
+// censusLang tallies source-file extensions in the project root and one
+// level of subdirectories and returns the winning language, or "" when
+// nothing recognisable is present.
+func censusLang(root string) string {
+	counts := map[string]int{}
+	seen := 0
+	tallyFile := func(name string) {
+		if seen >= censusCap {
+			return
+		}
+		lang, ok := extLangs[strings.ToLower(filepath.Ext(name))]
+		if !ok {
+			return
+		}
+		counts[lang]++
+		seen++
+	}
+	if entries, err := os.ReadDir(root); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			tallyFile(e.Name())
+		}
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || isJunk(e.Name()) {
+				continue
+			}
+			sub := filepath.Join(root, e.Name())
+			files, err := os.ReadDir(sub)
+			if err != nil {
+				continue
+			}
+			for _, f := range files {
+				if f.IsDir() {
+					continue
+				}
+				tallyFile(f.Name())
+			}
+		}
+	}
+	best, bestN := "", 0
+	for lang, n := range counts {
+		if n > bestN {
+			best, bestN = lang, n
+		}
+	}
+	return best
 }
 
 // nodeFrameworks are matched against package.json dependencies in

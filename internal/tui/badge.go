@@ -123,3 +123,20 @@ func scoreBar(score int) string {
 	filled := score / 5
 	return st.Render(strings.Repeat("█", filled)) + badgeMuted.Render(strings.Repeat("░", 20-filled))
 }
+
+// healthCell is the compact list-row health indicator (P11.02): a
+// 3-cell progress bar plus the bare score in the 8-cell HEALTH column
+// (leading space is the column separator) — the 20-cell scoreBar stays
+// for the detail pane.
+func healthCell(score int) string {
+	score = max(0, min(100, score))
+	st := badgeBad
+	switch {
+	case score >= 70:
+		st = badgeGood
+	case score >= 50:
+		st = badgeWarn
+	}
+	filled := min(3, score*3/100) // 0..3 cells
+	return " " + st.Render(strings.Repeat("█", filled)) + badgeMuted.Render(strings.Repeat("░", 3-filled)) + fmt.Sprintf(" %3d", score)
+}

@@ -65,8 +65,9 @@ type Toast struct {
 
 type (
 	projectsMsg struct {
-		ps  []registry.Project
-		err error
+		ps   []registry.Project
+		heat []int // daily activity counts for the heatmap (P11.05)
+		err  error
 	}
 	currentMsg struct {
 		p  registry.Project
@@ -161,12 +162,12 @@ type Root struct {
 }
 
 // NewRoot wires the shared state. The theme comes from config
-// appearance.theme, falling back to graphite-violet with a visible
+// appearance.theme, falling back to graphite-amber with a visible
 // warning when the name is unknown.
 func NewRoot(svc service.Service, cfg config.Config) Root {
 	theme, err := style.ByName(cfg.Appearance.Theme)
 	if err != nil {
-		theme = style.GraphiteViolet
+		theme = style.GraphiteAmber
 	}
 	r := Root{
 		svc:        svc,
@@ -199,7 +200,7 @@ func NewRoot(svc service.Service, cfg config.Config) Root {
 	if err != nil {
 		r.toasts = append(r.toasts, Toast{
 			Level: "warn",
-			Text:  fmt.Sprintf("unknown theme %q, using graphite-violet", cfg.Appearance.Theme),
+			Text:  fmt.Sprintf("unknown theme %q, using graphite-amber", cfg.Appearance.Theme),
 		})
 	}
 	r.dashboard.svc = svc
@@ -250,9 +251,14 @@ func (r Root) Init() tea.Cmd {
 }
 
 func (r Root) loadProjects() tea.Cmd {
+	svc := r.svc
 	return func() tea.Msg {
-		ps, err := r.svc.List(service.Filter{})
-		return projectsMsg{ps: ps, err: err}
+		ps, err := svc.List(service.Filter{})
+		var heat []int
+		if err == nil {
+			heat, _ = svc.ActivityDaily(90)
+		}
+		return projectsMsg{ps: ps, heat: heat, err: err}
 	}
 }
 
@@ -317,6 +323,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r.pushToast(Toast{Level: "bad", Text: "could not list projects: " + x.err.Error()})
 		}
 		r.dashboard.Projects = x.ps
+		r.dashboard.heat = x.heat
 		r.dashboard.applyFilter()
 		if r.pendingJump != "" {
 			r.dashboard.selectSlug(r.pendingJump)

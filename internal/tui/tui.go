@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -54,6 +56,8 @@ type Model struct {
 	Query          string
 	Picked         map[string]bool // multi-select set, keyed by project ID (P4.08)
 	Untriaged      bool            // smart filter: source stage past SLA (P4.12)
+	GroupLang      bool            // group the list by language (P11.04)
+	HideStale      bool            // smart filter: hide old/missing rows (P11.07)
 	Width          int
 	Height         int
 	WorkspaceRoot  string
@@ -63,6 +67,9 @@ type Model struct {
 	HasCurrent     bool
 	DetailFull     bool
 	detailScroll   int    // full-screen detail viewport offset (P10.01)
+	treeView       bool   // workspace tree overlay (P11.06)
+	treeScroll     int    // tree viewport offset
+	heat           []int  // daily activity counts for the heatmap (P11.05)
 	FixKey         string // attention bucket to pre-highlight in detail (P4.18)
 	search         textinput.Model
 	help           help.Model
@@ -216,6 +223,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailScroll = 1 << 30 // clamped at render
 				return m, nil
 			}
+		}
+
+		// The workspace tree overlay (P11.06) owns navigation until esc.
+		if m.treeView {
+			switch x.String() {
+			case "esc", "q", "w":
+				m.treeView = false
+				return m, nil
+			case "up", "k":
+				m.treeScroll = max(0, m.treeScroll-1)
+				return m, nil
+			case "down", "j":
+				m.treeScroll++
+				return m, nil
+			case "pgup":
+				m.treeScroll = max(0, m.treeScroll-10)
+				return m, nil
+			case "pgdown":
+				m.treeScroll += 10
+				return m, nil
+			case "g":
+				m.treeScroll = 0
+				return m, nil
+			case "G":
+				m.treeScroll = 1 << 30
+				return m, nil
+			}
+			return m, nil
 		}
 
 		// While a scan runs, esc cancels it (spec P3.15); the search
@@ -483,6 +518,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, revealCmd(p.Path)
 			}
 			m.Status = "Select a project to reveal its folder"
+			return m, nil
+		case key.Matches(x, keys.GroupLang):
+			m.GroupLang = !m.GroupLang
+			m.applyFilter()
+			if m.GroupLang {
+				m.Status = fmt.Sprintf("Grouped by language — %d shown", len(m.Visible))
+			} else {
+				m.Status = ""
+			}
+			return m, nil
+		case key.Matches(x, keys.HideStale):
+			m.HideStale = !m.HideStale
+			m.applyFilter()
+			if m.HideStale {
+				m.Status = fmt.Sprintf("Old/missing hidden — %d shown", len(m.Visible))
+			} else {
+				m.Status = ""
+			}
+			return m, nil
+		case key.Matches(x, keys.Tree):
+			m.treeView = !m.treeView
+			m.treeScroll = 0
+			m.Status = ""
 			return m, nil
 		}
 	case spinner.TickMsg:
@@ -1068,7 +1126,11 @@ func activitySpark(counts []int) string {
 func listCmd(svc service.Service) tea.Cmd {
 	return func() tea.Msg {
 		ps, err := svc.List(service.Filter{})
-		return projectsMsg{ps: ps, err: err}
+		var heat []int
+		if err == nil {
+			heat, _ = svc.ActivityDaily(90)
+		}
+		return projectsMsg{ps: ps, heat: heat, err: err}
 	}
 }
 
@@ -1171,6 +1233,9 @@ func (m *Model) applyFilter() {
 		if m.Untriaged && !isUntriaged(p, sla, time.Now()) {
 			continue
 		}
+		if m.HideStale && isStale(p) {
+			continue
+		}
 		haystack := strings.ToLower(strings.Join([]string{
 			p.Name, p.Slug, p.Path, p.Language, p.FlowStage, strings.Join(p.Stack, " "),
 		}, " "))
@@ -1180,6 +1245,13 @@ func (m *Model) applyFilter() {
 		m.Visible = append(m.Visible, p)
 	}
 	sort.SliceStable(m.Visible, func(i, j int) bool {
+		if m.GroupLang {
+			li, lj := langKey(m.Visible[i]), langKey(m.Visible[j])
+			if li != lj {
+				return li < lj
+			}
+			return strings.ToLower(m.Visible[i].Name) < strings.ToLower(m.Visible[j].Name)
+		}
 		if m.Visible[i].FlowStage == m.Visible[j].FlowStage {
 			return strings.ToLower(m.Visible[i].Name) < strings.ToLower(m.Visible[j].Name)
 		}
@@ -1194,6 +1266,38 @@ func (m *Model) applyFilter() {
 			}
 		}
 	}
+}
+
+// langKey is the grouping/sort key for a project's language (P11.04):
+// empty shows as "Unknown" so it sorts with its peers instead of first.
+func langKey(p registry.Project) string {
+	if p.Language == "" {
+		return "Unknown"
+	}
+	return p.Language
+}
+
+// isStale reports whether a row is an old copy, a missing folder, or a
+// duplicate name — the clutter the P11.07 filter hides. "Old" means a
+// path segment looks like an archive/backup; "missing" is the registry
+// flag; "duplicate" is a name shared by another project.
+func isStale(p registry.Project) bool {
+	return !p.OnDisk || looksOldPath(p.Path)
+}
+
+// looksOldPath flags archive-ish path segments (Old, Archive, backups,
+// copies) case-insensitively — the dogfood workspace keeps historical
+// snapshots under folders like 15_Archive/Old/... (P11.07).
+func looksOldPath(path string) bool {
+	for _, seg := range strings.FieldsFunc(strings.ToLower(path), func(r rune) bool {
+		return r == '/' || r == '\\' || r == ':'
+	}) {
+		switch seg {
+		case "old", "archive", "archives", "backup", "backups", "copy", "copies", "deprecated", "legacy":
+			return true
+		}
+	}
+	return false
 }
 
 // isUntriaged reports whether p is still in Source past the SLA
@@ -1265,7 +1369,7 @@ func (m Model) selectedProject() (registry.Project, bool) {
 	return m.Visible[m.Cursor], true
 }
 
-var theme = style.GraphiteViolet
+var theme = style.GraphiteAmber
 
 // P3.31 ASCII fallback: when RIVU_ASCII=1 (or the locale says the
 // terminal cannot show UTF-8) every rendered non-ASCII glyph is swapped
@@ -1334,6 +1438,9 @@ func (m Model) View() string {
 		if _, ok := m.selectedProject(); ok {
 			return m.detailFullView()
 		}
+	}
+	if m.treeView {
+		return m.treeFullView()
 	}
 	if m.flowPick {
 		return m.flowPickerView()
@@ -1453,7 +1560,7 @@ func (m Model) sidebar(width, height int) string {
 	b.WriteString("\n" + titleStyle.Render("WORKSPACE") + "\n")
 	b.WriteString(mutedStyle.Render(shorten(m.WorkspaceRoot, width-4)) + "\n")
 	b.WriteString("\n" + titleStyle.Render("QUICK ACTIONS") + "\n")
-	b.WriteString(mutedStyle.Render("r  rescan\n/  search\nd  detail\nh  doctor\na  map\nf  flow\no  reveal\ny  copy path"))
+	b.WriteString(mutedStyle.Render("r  rescan\n/  search\nd  detail\nh  doctor\na  map\nw  tree\nb  group lang\nf  flow\no  reveal\ny  copy path"))
 	style := panelStyle
 	if m.FocusSidebar {
 		style = focusStyle
@@ -1647,6 +1754,17 @@ func (m Model) projectPanel(width, height int) string {
 
 	for i := start; i < end; i++ {
 		p := m.Visible[i]
+		// Language group headers (P11.04): a divider row whenever the
+		// language changes — counts come from the whole filtered set.
+		if m.GroupLang && (i == 0 || langKey(p) != langKey(m.Visible[i-1])) {
+			n := 0
+			for _, q := range m.Visible {
+				if langKey(q) == langKey(p) {
+					n++
+				}
+			}
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("── %s (%d) ──", langKey(p), n)) + "\n")
+		}
 		mark := " "
 		if m.Picked[p.ID] {
 			mark = "✓"
@@ -1669,7 +1787,14 @@ func (m Model) projectPanel(width, height int) string {
 		if cols.channel {
 			line += " " + padCell(p.Channel, chanW)
 		}
-		line += fmt.Sprintf(" %3d/100", p.HealthScore)
+		line += healthCell(p.HealthScore)
+		// Stale rows (P11.07): missing folders and archive-ish paths
+		// render dim with a marker so they read as historical, not live.
+		if !p.OnDisk {
+			line += mutedStyle.Render(" missing")
+		} else if looksOldPath(p.Path) {
+			line += mutedStyle.Render(" old")
+		}
 		if i == m.Cursor {
 			line = selectedStyle.Render(line)
 		}
@@ -1722,10 +1847,17 @@ func (m Model) onboardMissingRoot() string {
 // detailsPanel is the side detail pane (>=120 cols).
 func (m Model) detailsPanel(width, height int) string {
 	p, ok := m.selectedProject()
+	body := titleStyle.Render("PROJECT DETAILS") + "\n\n"
 	if !ok {
-		return panelStyle.Width(width - 2).Height(height - 2).Render(titleStyle.Render("PROJECT DETAILS") + "\n\n" + mutedStyle.Render("Select a project (up/down to move, enter to open)."))
+		body += mutedStyle.Render("Select a project (up/down to move, enter to open).")
+	} else {
+		body += m.detailBody(p, width-4)
 	}
-	body := titleStyle.Render("PROJECT DETAILS") + "\n\n" + m.detailBody(p, width-4)
+	// Activity heatmap (P11.05): the last 9 weeks of daily events,
+	// rendered below the detail block when the pane is tall enough.
+	if h := heatmapView(m.heat, width-4); h != "" && height >= 22 {
+		body += "\n\n" + h
+	}
 	return panelStyle.Width(width - 2).Height(height - 2).Render(body)
 }
 
@@ -1749,6 +1881,149 @@ func (m Model) detailFullView() string {
 	}
 	box := panelStyle.Width(width).Height(rows).Render(viewport)
 	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
+}
+
+// heatmapView renders the last `heatWeeks` weeks of daily event counts
+// as a GitHub-style calendar (P11.05): 7 rows (Sun-Sat) by N week
+// columns, block shade by intensity. Empty input or too-narrow width
+// returns "" so the caller can skip it.
+func heatmapView(daily []int, width int) string {
+	const heatWeeks = 9
+	days := heatWeeks * 7
+	if len(daily) < days || width < heatWeeks*2+12 {
+		return ""
+	}
+	slice := daily[len(daily)-days:]
+	shades := []rune{'·', '░', '▒', '▓', '█'}
+	// Align to calendar weeks: today is the last element and sits in
+	// column heatWeeks-1 at row int(weekday). Day (c,r) maps back
+	// through: offset-from-today = (heatWeeks-1-c)*7 + (todayRow-r).
+	todayRow := int(time.Now().Weekday())
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("ACTIVITY") + mutedStyle.Render(fmt.Sprintf("  %dd", days)) + "\n")
+	labels := []string{"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"}
+	for row := 0; row < 7; row++ {
+		b.WriteString(mutedStyle.Render(labels[row]) + " ")
+		for col := 0; col < heatWeeks; col++ {
+			back := (heatWeeks-1-col)*7 + (todayRow - row)
+			if back < 0 || back >= len(slice) { // future days or outside the window
+				b.WriteString("  ")
+				continue
+			}
+			n := slice[len(slice)-1-back]
+			shade := 0
+			switch {
+			case n >= 8:
+				shade = 4
+			case n >= 4:
+				shade = 3
+			case n >= 2:
+				shade = 2
+			case n >= 1:
+				shade = 1
+			}
+			st := badgeMuted
+			if shade >= 3 {
+				st = badgeGood
+			} else if shade == 2 {
+				st = badgeWarn
+			}
+			b.WriteString(st.Render(string(shades[shade])) + " ")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// treeFullView is the workspace memory view (P11.06): every project
+// rendered as a nested folder tree under the workspace root, with
+// language and health on each leaf. Scrolls its own body.
+func (m Model) treeFullView() string {
+	width := min(m.Width-4, 110)
+	inner := width - 4
+	body := titleStyle.Render("WORKSPACE TREE") + "\n" +
+		mutedStyle.Render(shorten(m.WorkspaceRoot, inner)) + "\n\n" +
+		m.treeLines(inner)
+	actions := mutedStyle.Render("[esc/q/w] back  [↑↓/jk] scroll")
+	lines := strings.Split(body+"\n\n"+actions, "\n")
+	rows := max(8, m.Height-4)
+	start := min(max(m.treeScroll, 0), max(0, len(lines)-rows))
+	end := min(start+rows, len(lines))
+	viewport := strings.Join(lines[start:end], "\n")
+	if len(lines) > rows {
+		viewport += "\n" + mutedStyle.Render(fmt.Sprintf("↑↓ scroll %d–%d/%d", start+1, end, len(lines)))
+	}
+	box := panelStyle.Width(width).Height(rows).Render(viewport)
+	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
+}
+
+// treeLines builds the nested folder tree of every known project
+// relative to the workspace root (P11.06). Folders sort before
+// projects, both alphabetically; each leaf carries language + health.
+func (m Model) treeLines(width int) string {
+	if len(m.Projects) == 0 {
+		return mutedStyle.Render("No projects yet — press r to scan.")
+	}
+	// Bucket each project under its relative parent folder; register
+	// every ancestor so empty intermediate dirs still render.
+	children := map[string][]registry.Project{}
+	folders := map[string]bool{"": true}
+	for _, p := range m.Projects {
+		rel, err := filepath.Rel(m.WorkspaceRoot, p.Path)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			rel = p.Name
+		}
+		rel = filepath.ToSlash(rel)
+		dir := path.Dir(rel)
+		if dir == "." {
+			dir = ""
+		}
+		for d := dir; d != "" && d != "."; d = path.Dir(d) {
+			folders[d] = true
+		}
+		children[dir] = append(children[dir], p)
+	}
+	var lines []string
+	var walk func(dir, prefix string)
+	walk = func(dir, prefix string) {
+		// Subdirectories of dir first, then project leaves.
+		var subs []string
+		for sub := range folders {
+			if sub != "" && path.Dir(sub) == dir {
+				subs = append(subs, sub)
+			}
+		}
+		sort.Strings(subs)
+		leaves := children[dir]
+		sort.Slice(leaves, func(i, j int) bool { return leaves[i].Name < leaves[j].Name })
+		total := len(subs) + len(leaves)
+		for i, sub := range subs {
+			last := i == total-1
+			branch, next := "├── ", prefix+"│   "
+			if last {
+				branch, next = "└── ", prefix+"    "
+			}
+			lines = append(lines, prefix+branch+mutedStyle.Render(path.Base(sub)+"/"))
+			walk(sub, next)
+		}
+		for j, p := range leaves {
+			i := len(subs) + j
+			branch := "├── "
+			if i == total-1 {
+				branch = "└── "
+			}
+			label := fmt.Sprintf("%s  %s %3d", p.Name, langKey(p), p.HealthScore)
+			if !p.OnDisk {
+				label += " missing"
+			}
+			lines = append(lines, prefix+branch+shorten(label, max(10, width-lipgloss.Width(prefix)-4)))
+		}
+	}
+	walk("", "")
+	if len(lines) == 0 {
+		return mutedStyle.Render("No projects to show.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // fixHint words the pre-highlighted fix for an attention bucket (P4.18);
@@ -1783,7 +2058,8 @@ func (m Model) detailBody(p registry.Project, width int) string {
 	b.WriteString(labelValue("Git", gitBadge(p.HasGit)) + "\n")
 	b.WriteString(labelValue("Bank", bankBadge(p.HasBank)) + "\n")
 	b.WriteString(labelValue("Map", mapBadge(p.HasMap)) + "\n")
-	b.WriteString(labelValue("Health", healthBadge(p.HealthScore)) + "\n\n")
+	b.WriteString(labelValue("Health", healthBadge(p.HealthScore)) + "\n")
+	b.WriteString(scoreBar(p.HealthScore) + "\n\n")
 	b.WriteString(titleStyle.Render("HEALTH CHECKS") + "\n")
 	for _, line := range detailChecks(p) {
 		b.WriteString(shorten(line, width) + "\n")

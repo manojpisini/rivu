@@ -6,7 +6,7 @@ SETTINGS
   Templates      Default template      empty
   Health         Score weighting       custom
   Scanner        Ignore list           node_modules, .git, dist, build, .next, target, vendor, co…
-  Appearance     Theme                 graphite-violet
+  Appearance     Theme                 graphite-amber
   Keybindings    Profile               default
   Data           DB location           /home/u/.rivu/rivu.db
   About          Version               dev
