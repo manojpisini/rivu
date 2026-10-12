@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,15 +12,17 @@ import (
 )
 
 // TestMapReportOpensPreviewsAndScrolls: a from the list opens the report
-// with the on-disk bodies and diff, j/k scroll it, i inside improves and
-// reloads, esc returns to the dashboard (P4.15, P10.06).
+// with the on-disk bodies and diff, tab focuses the content panel,
+// j/k scroll it, i inside improves and reloads, esc returns to the
+// dashboard (P4.15, P10.06, P12.01).
 func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 	m, f := scanFixture(t)
 	f.MapPreviewRes = service.MapPreview{
-		Project:  m.Projects[0],
-		MapBody:  "line one\nline two\nline three\n" + strings.Repeat("filler line\n", 40),
-		MapStale: true,
-		Diff:     []string{"- old header", "+ new header"},
+		Project:     m.Projects[0],
+		MapBody:     "line one\nline two\nline three\n" + strings.Repeat("filler line\n", 40),
+		MapStale:    true,
+		Diff:        []string{"- old header", "+ new header"},
+		BankPresent: []string{"agent/PROJECT_MAP.md"},
 	}
 	m, cmd := updateC(t, m, runeKey("a"))
 	pm, ok := cmd().(mapPreviewMsg)
@@ -33,13 +37,12 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		t.Fatalf("screen = %v, want map report", r.screen)
 	}
 	v := r.View()
-	for _, want := range []string{"BANK & MAP - ", "map: stale", "PROJECT_MAP.md", "line one"} {
+	for _, want := range []string{"BANK & MAP - ", "map: stale", "PROJECT_MAP.md", "line one", "CONTENT"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("report view missing %q in %q", want, v)
 		}
 	}
-	// the diff and AGENTS sections live below the first window: assert
-	// them on the full body, then scroll toward them
+	// the legacy flat body still carries the diff and AGENTS sections
 	all := strings.Join(r.mapLines(), "\n")
 	for _, want := range []string{"DIFF vs disk (i improves):", "- old header", "+ new header", "AGENTS.md"} {
 		if !strings.Contains(all, want) {
@@ -47,7 +50,12 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		}
 	}
 
-	// j/k scroll the preview window
+	// tab focuses the content panel; j/k then scroll it
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	r, _ = upd(t, r, tab)
+	if r.mapFocus != 1 {
+		t.Fatalf("focus = %d, want 1 after tab", r.mapFocus)
+	}
 	before := r.View()
 	r, _ = upd(t, r, keyR('j'))
 	if r.mapScroll != 1 {
@@ -59,6 +67,15 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 	r, _ = upd(t, r, keyR('k'))
 	if r.mapScroll != 0 {
 		t.Fatalf("scroll = %d, want 0 after k", r.mapScroll)
+	}
+	// tab back to the file list: j moves the cursor, not the scroll
+	r, _ = upd(t, r, tab)
+	if r.mapFocus != 0 {
+		t.Fatalf("focus = %d, want 0 after second tab", r.mapFocus)
+	}
+	r, _ = upd(t, r, keyR('j'))
+	if r.mapCursor != 1 || r.mapScroll != 0 {
+		t.Fatalf("cursor = %d scroll = %d, want cursor 1 scroll 0", r.mapCursor, r.mapScroll)
 	}
 
 	// i inside the report improves (rebuilds) AND reloads the preview
@@ -113,8 +130,8 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 }
 
 // TestMapReportErrorAndMissingFiles: a failed preview lands in the sticky
-// error banner without leaving the dashboard, and empty bodies explain
-// how to fill them.
+// error banner without leaving the dashboard, and missing bank files
+// explain how to fill them.
 func TestMapReportErrorAndMissingFiles(t *testing.T) {
 	m, f := scanFixture(t)
 	f.MapPreviewErr = errors.New("db locked")
@@ -134,18 +151,58 @@ func TestMapReportErrorAndMissingFiles(t *testing.T) {
 
 	// empty bodies: the report tells the user a rebuild fills them in
 	f.MapPreviewErr = nil
-	f.MapPreviewRes = service.MapPreview{Project: m.Projects[0]}
+	f.MapPreviewRes = service.MapPreview{
+		Project:     m.Projects[0],
+		BankMissing: []string{"agent/PROJECT_MAP.md"},
+	}
 	m, cmd = updateC(t, m, runeKey("a"))
 	r, _ = upd(t, r, cmd().(mapPreviewMsg))
 	if r.screen != ScreenMap {
 		t.Fatalf("screen = %v, want the report", r.screen)
 	}
 	v := r.View()
-	if !strings.Contains(v, "(missing - press i to improve)") {
+	if !strings.Contains(v, "press i to rebuild") {
 		t.Errorf("report = %q, want the rebuild hint", v)
 	}
-	if !strings.Contains(v, "line 1/") {
-		t.Errorf("report = %q, want a line counter", v)
+	if !strings.Contains(v, "CONTENT 1/") {
+		t.Errorf("report = %q, want a content line counter", v)
+	}
+}
+
+// TestProjectFileTreeNestsFolders: the Bank & Map left panel renders a
+// nested tree of the project directory (P12.02).
+func TestProjectFileTreeNestsFolders(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(rel string) {
+		if err := os.MkdirAll(filepath.Join(dir, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(rel string) {
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("src")
+	mk("docs")
+	write("README.md")
+	write(filepath.Join("src", "main.go"))
+	lines := projectFileTree(dir, 3)
+	all := strings.Join(lines, "\n")
+	for _, want := range []string{"src/", "docs/", "README.md", "main.go"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("tree missing %q in %q", want, all)
+		}
+	}
+	// junk dirs are skipped
+	mk("node_modules")
+	write(filepath.Join("node_modules", "junk.js"))
+	lines = projectFileTree(dir, 3)
+	if strings.Contains(strings.Join(lines, "\n"), "junk.js") {
+		t.Error("tree must skip node_modules")
+	}
+	if projectFileTree("", 3) != nil {
+		t.Error("empty root must return nil")
 	}
 }
 

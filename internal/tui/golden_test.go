@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -204,4 +205,31 @@ func TestGoldenPhase4Screens(t *testing.T) {
 			golden.RequireEqual(t, []byte(v))
 		})
 	}
+}
+
+// TestGoldenMapReportWide snapshots the Bank & Map two-panel screen at
+// 160x45 (P12.09): wide enough for the full file tree and a long
+// content preview side by side.
+func TestGoldenMapReportWide(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	prevGlyphs := asciiGlyphs
+	asciiGlyphs = false
+	t.Cleanup(func() { asciiGlyphs = prevGlyphs })
+
+	r := goldenRoot()
+	r, _ = upd(t, r, tea.WindowSizeMsg{Width: 160, Height: 45})
+	r, _ = upd(t, r, mapPreviewMsg{q: "alpha", prev: service.MapPreview{
+		Project:     goldenProjects()[0],
+		MapBody:     "# Alpha\nagent map line one\nagent map line two\n" + strings.Repeat("filler\n", 30),
+		MapStale:    true,
+		Diff:        []string{"- stale header", "+ fresh header"},
+		AgentsBody:  "agents stay create-if-missing\n",
+		BankPresent: []string{"project.toml", "overview.md", "agent/PROJECT_MAP.md"},
+		BankMissing: []string{"decisions.md"},
+	}})
+	v := r.View()
+	if n := lipgloss.Height(v); n > 45 {
+		t.Errorf("view is %d lines at height 45 — bubbletea would cut the top lines", n)
+	}
+	golden.RequireEqual(t, []byte(v))
 }

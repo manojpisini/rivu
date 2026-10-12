@@ -1,16 +1,30 @@
 BANK & MAP - Alpha  map: stale  agents: present
-BANK (.metadata — protected, create-if-missing)
 
-PROJECT_MAP.md
-# Alpha
-agent map line one
-agent map line two
-
-DIFF vs disk (i improves):
-- stale header
-+ fresh header
-
-AGENTS.md (create-if-missing, never overwritten)
-agents stay create-if-missing
-
-line 1/13 - up/down scroll - i improve - e refine in editor - esc back
+╭─────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ FILES                           │ │ CONTENT 1/1                                                    │
+│                                 │ │                                                                │
+│ ── tree ──                      │ │ File tree — e opens the project in your editor, i rebuilds the │
+│   (no files)                    │ │ Map.                                                           │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+│                                 │ │                                                                │
+╰─────────────────────────────────╯ ╰────────────────────────────────────────────────────────────────╯
+tab switch panel · up/down navigate · enter view content · i improve · e editor · esc back

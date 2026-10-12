@@ -1958,30 +1958,67 @@ func (m Model) detailFullView() string {
 	return bgStyle.Width(m.Width).Render(lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, box))
 }
 
-// heatmapView renders the last `heatWeeks` weeks of daily event counts
-// as a GitHub-style calendar (P11.05): 7 rows (Sun-Sat) by N week
-// columns, block shade by intensity. Empty input or too-narrow width
-// returns "" so the caller can skip it.
+// heatmapView renders the last ~N weeks of daily event counts as a
+// GitHub-style calendar (P11.05, improved P12.04): 7 rows (Sun-Sat)
+// by week columns, block shade by intensity, month labels above,
+// today marker, legend and total. Adaptive week count to width.
+// Empty input or too-narrow width returns "".
 func heatmapView(daily []int, width int) string {
-	const heatWeeks = 9
-	days := heatWeeks * 7
-	if len(daily) < days || width < heatWeeks*2+12 {
+	if len(daily) < 28 || width < 24 {
 		return ""
+	}
+	// Adaptive: fit as many weeks as the width allows, 4..26.
+	heatWeeks := clamp((width-12)/2, 4, 26)
+	days := heatWeeks * 7
+	if len(daily) < days {
+		days = (len(daily) / 7) * 7
+		if days < 28 {
+			return ""
+		}
+		heatWeeks = days / 7
 	}
 	slice := daily[len(daily)-days:]
 	shades := []rune{'·', '░', '▒', '▓', '█'}
-	// Align to calendar weeks: today is the last element and sits in
-	// column heatWeeks-1 at row int(weekday). Day (c,r) maps back
-	// through: offset-from-today = (heatWeeks-1-c)*7 + (todayRow-r).
 	todayRow := int(time.Now().Weekday())
+	today := time.Now()
+
+	// Total events in the window.
+	total := 0
+	for _, n := range slice {
+		total += n
+	}
+
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("ACTIVITY") + mutedStyle.Render(fmt.Sprintf("  %dd", days)) + "\n")
+	b.WriteString(titleStyle.Render("ACTIVITY") +
+		mutedStyle.Render(fmt.Sprintf("  %dd · %d events", days, total)) + "\n")
+
+	// Month labels: for each week column, the month of its Monday-ish
+	// midpoint; show only when it changes from the previous column.
+	b.WriteString("    ") // room for "Su " labels
+	prevMonth := ""
+	for col := 0; col < heatWeeks; col++ {
+		back := (heatWeeks-1-col)*7 + (todayRow - 0)
+		if back < 0 || back >= len(slice) {
+			b.WriteString("  ")
+			continue
+		}
+		d := today.AddDate(0, 0, -back)
+		mon := d.Format("Jan")
+		if mon != prevMonth {
+			b.WriteString(mutedStyle.Render(mon + " "))
+			prevMonth = mon
+		} else {
+			b.WriteString("  ")
+		}
+	}
+	b.WriteString("\n")
+
 	labels := []string{"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"}
 	for row := 0; row < 7; row++ {
 		b.WriteString(mutedStyle.Render(labels[row]) + " ")
 		for col := 0; col < heatWeeks; col++ {
 			back := (heatWeeks-1-col)*7 + (todayRow - row)
-			if back < 0 || back >= len(slice) { // future days or outside the window
+			if back < 0 || back >= len(slice) {
 				b.WriteString("  ")
 				continue
 			}
@@ -2003,10 +2040,20 @@ func heatmapView(daily []int, width int) string {
 			} else if shade == 2 {
 				st = badgeWarn
 			}
+			// Today gets a bold accent background.
+			if back == 0 {
+				st = selectedStyle
+			}
 			b.WriteString(st.Render(string(shades[shade])) + " ")
 		}
 		b.WriteString("\n")
 	}
+
+	// Legend: less █ more, with the shade scale.
+	b.WriteString("\n" + mutedStyle.Render("less ") +
+		badgeMuted.Render("·") + badgeMuted.Render("░") + badgeWarn.Render("▒") +
+		badgeGood.Render("▓") + badgeGood.Render("█") +
+		mutedStyle.Render(" more"))
 	return b.String()
 }
 

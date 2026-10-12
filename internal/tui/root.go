@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -120,6 +122,8 @@ type Root struct {
 	mapPrev      service.MapPreview // Map report payload (P4.15)
 	mapQ         string
 	mapScroll    int
+	mapCursor    int                // selected row in the Bank & Map file list
+	mapFocus     int                // 0 = file list, 1 = content viewer
 	masterRes    *service.Dashboard // Master Dashboard snapshot (P4.16)
 	masterCursor int                // attention queue cursor (P4.18)
 	statsRes     *service.Stats     // Stats screen snapshot (P4.19)
@@ -1020,6 +1024,10 @@ func (r Root) doctorView() string {
 // opens overview.md in the editor for manual curation.
 func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch x.String() {
+	case "tab", "left", "right":
+		r.mapFocus = 1 - r.mapFocus
+		r.mapScroll = 0
+		return r, nil
 	case "i", "a":
 		if r.svc == nil {
 			return r.pushToast(Toast{Level: "bad", Text: "Bank & Map unavailable: no service in this session"})
@@ -1034,18 +1042,47 @@ func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return r.pushToast(Toast{Level: "bad", Text: "refine failed: " + err.Error()})
 		}
 		return r, cmd
-	case "up", "k":
-		r.mapScroll = max(0, r.mapScroll-1)
-	case "down", "j":
-		r.mapScroll++
-	case "pgup":
-		r.mapScroll = max(0, r.mapScroll-10)
-	case "pgdown":
-		r.mapScroll += 10
-	case "g":
+	case "enter":
+		// Enter previews focus: jump to the content panel.
+		r.mapFocus = 1
 		r.mapScroll = 0
+		return r, nil
+	case "up", "k":
+		if r.mapFocus == 0 {
+			r.mapCursor = max(0, r.mapCursor-1)
+		} else {
+			r.mapScroll = max(0, r.mapScroll-1)
+		}
+	case "down", "j":
+		if r.mapFocus == 0 {
+			r.mapCursor = min(max(len(r.mapFileEntries())-1, 0), r.mapCursor+1)
+		} else {
+			r.mapScroll++
+		}
+	case "pgup":
+		if r.mapFocus == 0 {
+			r.mapCursor = max(0, r.mapCursor-10)
+		} else {
+			r.mapScroll = max(0, r.mapScroll-10)
+		}
+	case "pgdown":
+		if r.mapFocus == 0 {
+			r.mapCursor = min(max(len(r.mapFileEntries())-1, 0), r.mapCursor+10)
+		} else {
+			r.mapScroll += 10
+		}
+	case "g":
+		if r.mapFocus == 0 {
+			r.mapCursor = 0
+		} else {
+			r.mapScroll = 0
+		}
 	case "G":
-		r.mapScroll = 1 << 30 // clamped against the content at render
+		if r.mapFocus == 0 {
+			r.mapCursor = max(len(r.mapFileEntries())-1, 0)
+		} else {
+			r.mapScroll = 1 << 30
+		}
 	}
 	return r, nil
 }
@@ -1153,40 +1190,197 @@ func (r Root) mapLines() []string {
 	return lines
 }
 
-// mapReportView is the Bank & Map screen (spec screen 8, P10.06): the
-// Bank file inventory plus a preview of PROJECT_MAP.md/AGENTS.md with
-// a diff against disk, scrollable.
-func (r Root) mapReportView() string {
-	var b strings.Builder
-	line := "BANK & MAP - " + r.mapPrev.Project.Name + "  "
-	if r.mapPrev.MapStale {
-		line += r.styleErr.Render("map: stale")
-	} else {
-		line += r.styleMuted.Render("map: ok")
+// projectFileTree walks a project directory and returns nested tree
+// lines (P12.02). Depth-limited, skips junk/dot dirs, folders first.
+func projectFileTree(root string, maxDepth int) []string {
+	if root == "" {
+		return nil
 	}
-	line += "  "
-	if r.mapPrev.AgentsMissing {
-		line += r.styleErr.Render("agents: missing")
-	} else {
-		line += r.styleMuted.Render("agents: present")
-	}
-	b.WriteString(r.styleTitle.Render(line))
-
-	lines := r.mapLines()
-	rows := max(5, r.height-6)
-	if r.height == 0 {
-		rows = 20
-	}
-	start := min(max(r.mapScroll, 0), max(0, len(lines)-rows))
-	for _, ln := range lines[start:min(start+rows, len(lines))] {
-		if r.width > 0 {
-			ln = shorten(ln, max(1, r.width-4))
+	var lines []string
+	var walk func(dir, prefix, name string, depth int)
+	walk = func(dir, prefix, name string, depth int) {
+		if depth > maxDepth {
+			return
 		}
-		b.WriteString("\n" + ln)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		// Separate folders and files; sort each alphabetically.
+		var folders, files []string
+		for _, e := range entries {
+			n := e.Name()
+			if n == ".git" || n == "node_modules" || n == "vendor" ||
+				n == "target" || n == "dist" || n == "build" ||
+				strings.HasPrefix(n, ".") {
+				continue
+			}
+			if e.IsDir() {
+				folders = append(folders, n)
+			} else {
+				files = append(files, n)
+			}
+		}
+		sort.Strings(folders)
+		sort.Strings(files)
+		total := len(folders) + len(files)
+		for i, f := range folders {
+			last := i == len(folders)-1 && len(files) == 0
+			branch, next := "├── ", prefix+"│   "
+			if last {
+				branch, next = "└── ", prefix+"    "
+			}
+			lines = append(lines, prefix+branch+mutedStyle.Render(f+"/"))
+			walk(filepath.Join(dir, f), next, f, depth+1)
+		}
+		for i, f := range files {
+			last := len(folders)+i == total-1
+			branch := "├── "
+			if last {
+				branch = "└── "
+			}
+			lines = append(lines, prefix+branch+f)
+		}
 	}
-	b.WriteString("\n\n" + r.styleMuted.Render(fmt.Sprintf(
-		"line %d/%d - up/down scroll - i improve - e refine in editor - esc back", start+1, len(lines))))
-	return b.String()
+	walk(root, "", filepath.Base(root), 1)
+	return lines
+}
+
+// mapFileEntries returns the selectable rows in the Bank & Map left
+// panel: bank inventory lines first, then the project file tree.
+func (r Root) mapFileEntries() []string {
+	var out []string
+	for _, n := range r.mapPrev.BankPresent {
+		out = append(out, iconPresent+" "+n)
+	}
+	for _, n := range r.mapPrev.BankMissing {
+		out = append(out, iconMissing+" "+n)
+	}
+	out = append(out, "") // separator
+	tree := projectFileTree(r.mapPrev.Project.Path, 3)
+	if len(tree) == 0 {
+		tree = []string{mutedStyle.Render("(no files)")}
+	}
+	out = append(out, tree...)
+	return out
+}
+
+// mapContentFor returns the right-panel body for the selected left-row.
+func (r Root) mapContentFor(idx int) string {
+	// Bank files: 0..n-1 present, n..n+m-1 missing, then separator.
+	n := len(r.mapPrev.BankPresent)
+	m := len(r.mapPrev.BankMissing)
+	if idx < 0 {
+		return mutedStyle.Render("Select a file to preview.")
+	}
+	switch {
+	case idx < n:
+		name := r.mapPrev.BankPresent[idx]
+		switch {
+		case name == "agent/PROJECT_MAP.md":
+			if r.mapPrev.MapBody == "" {
+				return mutedStyle.Render("(missing — press i to improve)")
+			}
+			if r.mapPrev.MapStale && len(r.mapPrev.Diff) > 0 {
+				return r.mapPrev.MapBody + "\n\n── DIFF vs disk ──\n" + strings.Join(r.mapPrev.Diff, "\n")
+			}
+			return r.mapPrev.MapBody
+		case name == "agent/AGENTS.md":
+			if r.mapPrev.AgentsBody == "" {
+				return mutedStyle.Render("(missing — press i to create)")
+			}
+			return r.mapPrev.AgentsBody
+		default:
+			return mutedStyle.Render(name + " — press e to open in editor")
+		}
+	case idx < n+m:
+		return mutedStyle.Render("Missing on disk — press i to rebuild (scan auto-builds too).")
+	default:
+		// File-tree row or separator.
+		return mutedStyle.Render("File tree — e opens the project in your editor, i rebuilds the Map.")
+	}
+}
+
+// mapReportView is the Bank & Map screen (P12.01): left panel lists
+// bank inventory + project file tree; right panel previews the
+// selected file's content. Tab switches panels.
+func (r Root) mapReportView() string {
+	w, h := r.width, r.height
+	if w == 0 {
+		w = 120
+	}
+	if h == 0 {
+		h = 32
+	}
+	header := "BANK & MAP - " + r.mapPrev.Project.Name + "  "
+	if r.mapPrev.MapStale {
+		header += r.styleErr.Render("map: stale")
+	} else {
+		header += r.styleMuted.Render("map: ok")
+	}
+	header += "  "
+	if r.mapPrev.AgentsMissing {
+		header += r.styleErr.Render("agents: missing")
+	} else {
+		header += r.styleMuted.Render("agents: present")
+	}
+
+	entries := r.mapFileEntries()
+	// Total lines = header + blank + (bodyH + 2 border rows) + footer.
+	bodyH := max(5, h-5)
+
+	// Left panel: file list + tree.
+	leftW := clamp(w/3, 28, 40)
+	var left strings.Builder
+	left.WriteString(r.styleTitle.Render("FILES") + "\n\n")
+	for i, e := range entries {
+		if e == "" {
+			left.WriteString(r.styleMuted.Render("── tree ──") + "\n")
+			continue
+		}
+		if i == r.mapCursor {
+			left.WriteString(r.styleTitle.Render("▸ ") + e + "\n")
+		} else {
+			left.WriteString("  " + e + "\n")
+		}
+	}
+	leftBody := left.String()
+	// Trim to panel height.
+	if ls := strings.Split(leftBody, "\n"); len(ls) > bodyH {
+		leftBody = strings.Join(ls[:bodyH], "\n")
+	}
+
+	// Right panel: content preview with a line-position title.
+	rightW := max(20, w-leftW-3)
+	raw := r.mapContentFor(r.mapCursor)
+	clines := strings.Split(raw, "\n")
+	visible := max(1, bodyH-2) // panel inner minus title + blank line
+	start := 0
+	if r.mapFocus == 1 {
+		start = clamp(r.mapScroll, 0, max(0, len(clines)-visible))
+	}
+	end := min(start+visible, len(clines))
+	content := strings.Join(clines[start:end], "\n")
+	rightTitle := r.styleTitle.Render("CONTENT") +
+		mutedStyle.Render(fmt.Sprintf(" %d/%d", start+1, len(clines)))
+	if r.mapPrev.MapStale && r.mapCursor < len(r.mapPrev.BankPresent) {
+		rightTitle += "  " + r.styleErr.Render("stale")
+	}
+	content = rightTitle + "\n\n" + content
+
+	// Panel borders (consistent with dashboard).
+	leftPanel := panelStyle.Width(leftW).Height(bodyH).Render(leftBody)
+	if r.mapFocus == 0 {
+		leftPanel = focusStyle.Width(leftW).Height(bodyH).Render(leftBody)
+	}
+	rightPanel := panelStyle.Width(rightW).Height(bodyH).Render(content)
+	if r.mapFocus == 1 {
+		rightPanel = focusStyle.Width(rightW).Height(bodyH).Render(content)
+	}
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, " ", rightPanel)
+	foot := r.styleMuted.Render("tab switch panel · up/down navigate · enter view content · i improve · e editor · esc back")
+	return r.styleTitle.Render(header) + "\n\n" + row + "\n" + foot
 }
 
 // fileLines splits file content into lines without a trailing blank.
