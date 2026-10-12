@@ -50,7 +50,7 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		}
 	}
 
-	// tab focuses the content panel; j/k then scroll it
+	// tab focuses the content panel; j/k then scroll it via the viewport
 	tab := tea.KeyMsg{Type: tea.KeyTab}
 	r, _ = upd(t, r, tab)
 	if r.mapFocus != 1 {
@@ -58,15 +58,15 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 	}
 	before := r.View()
 	r, _ = upd(t, r, keyR('j'))
-	if r.mapScroll != 1 {
-		t.Fatalf("scroll = %d, want 1 after j", r.mapScroll)
+	if r.mapVP.YOffset != 1 {
+		t.Fatalf("viewport offset = %d, want 1 after j", r.mapVP.YOffset)
 	}
 	if r.View() == before {
 		t.Fatal("scrolling must move the window on long content")
 	}
 	r, _ = upd(t, r, keyR('k'))
-	if r.mapScroll != 0 {
-		t.Fatalf("scroll = %d, want 0 after k", r.mapScroll)
+	if r.mapVP.YOffset != 0 {
+		t.Fatalf("viewport offset = %d, want 0 after k", r.mapVP.YOffset)
 	}
 	// tab back to the file list: j moves the cursor, not the scroll
 	r, _ = upd(t, r, tab)
@@ -74,8 +74,8 @@ func TestMapReportOpensPreviewsAndScrolls(t *testing.T) {
 		t.Fatalf("focus = %d, want 0 after second tab", r.mapFocus)
 	}
 	r, _ = upd(t, r, keyR('j'))
-	if r.mapCursor != 1 || r.mapScroll != 0 {
-		t.Fatalf("cursor = %d scroll = %d, want cursor 1 scroll 0", r.mapCursor, r.mapScroll)
+	if r.mapCursor != 1 || r.mapVP.YOffset != 0 {
+		t.Fatalf("cursor = %d offset = %d, want cursor 1 offset 0", r.mapCursor, r.mapVP.YOffset)
 	}
 
 	// i inside the report improves (rebuilds) AND reloads the preview

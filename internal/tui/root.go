@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -121,7 +122,7 @@ type Root struct {
 	doctorQ      string
 	mapPrev      service.MapPreview // Map report payload (P4.15)
 	mapQ         string
-	mapScroll    int
+	mapVP        viewport.Model     // content-panel scroll (P12.06)
 	mapCursor    int                // selected row in the Bank & Map file list
 	mapFocus     int                // 0 = file list, 1 = content viewer
 	masterRes    *service.Dashboard // Master Dashboard snapshot (P4.16)
@@ -443,7 +444,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r.pushToast(Toast{Level: "bad", Text: "could not open the map report: " + x.err.Error()})
 		}
 		r.mapPrev, r.mapQ = x.prev, x.q
-		r.mapScroll = 0
+		r.mapVP.SetYOffset(0)
+		r.mapVP.SetContent(r.mapContentFor(r.mapCursor))
 		r.screen = ScreenMap
 		return r, nil
 	case dashMsg:
@@ -1026,7 +1028,7 @@ func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch x.String() {
 	case "tab", "left", "right":
 		r.mapFocus = 1 - r.mapFocus
-		r.mapScroll = 0
+		r.mapVP.SetYOffset(0)
 		return r, nil
 	case "i", "a":
 		if r.svc == nil {
@@ -1045,43 +1047,32 @@ func (r Root) mapKeys(x tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		// Enter previews focus: jump to the content panel.
 		r.mapFocus = 1
-		r.mapScroll = 0
+		r.mapVP.SetYOffset(0)
 		return r, nil
-	case "up", "k":
+	case "up", "k", "down", "j", "pgup", "pgdown", "g", "G":
 		if r.mapFocus == 0 {
-			r.mapCursor = max(0, r.mapCursor-1)
+			n := len(r.mapFileEntries())
+			switch x.String() {
+			case "up", "k":
+				r.mapCursor = max(0, r.mapCursor-1)
+			case "down", "j":
+				r.mapCursor = min(max(n-1, 0), r.mapCursor+1)
+			case "pgup":
+				r.mapCursor = max(0, r.mapCursor-10)
+			case "pgdown":
+				r.mapCursor = min(max(n-1, 0), r.mapCursor+10)
+			case "g":
+				r.mapCursor = 0
+			case "G":
+				r.mapCursor = max(n-1, 0)
+			}
+			// Cursor moved: reload the viewport with the new file.
+			r.mapVP.SetYOffset(0)
+			r.mapVP.SetContent(r.mapContentFor(r.mapCursor))
 		} else {
-			r.mapScroll = max(0, r.mapScroll-1)
-		}
-	case "down", "j":
-		if r.mapFocus == 0 {
-			r.mapCursor = min(max(len(r.mapFileEntries())-1, 0), r.mapCursor+1)
-		} else {
-			r.mapScroll++
-		}
-	case "pgup":
-		if r.mapFocus == 0 {
-			r.mapCursor = max(0, r.mapCursor-10)
-		} else {
-			r.mapScroll = max(0, r.mapScroll-10)
-		}
-	case "pgdown":
-		if r.mapFocus == 0 {
-			r.mapCursor = min(max(len(r.mapFileEntries())-1, 0), r.mapCursor+10)
-		} else {
-			r.mapScroll += 10
-		}
-	case "g":
-		if r.mapFocus == 0 {
-			r.mapCursor = 0
-		} else {
-			r.mapScroll = 0
-		}
-	case "G":
-		if r.mapFocus == 0 {
-			r.mapCursor = max(len(r.mapFileEntries())-1, 0)
-		} else {
-			r.mapScroll = 1 << 30
+			// Content panel: bubbles viewport owns the scroll (P12.06).
+			nm, _ := r.mapVP.Update(x)
+			r.mapVP = nm
 		}
 	}
 	return r, nil
@@ -1350,19 +1341,17 @@ func (r Root) mapReportView() string {
 		leftBody = strings.Join(ls[:bodyH], "\n")
 	}
 
-	// Right panel: content preview with a line-position title.
+	// Right panel: content preview via the bubbles viewport (P12.06).
 	rightW := max(20, w-leftW-3)
 	raw := r.mapContentFor(r.mapCursor)
 	clines := strings.Split(raw, "\n")
 	visible := max(1, bodyH-2) // panel inner minus title + blank line
-	start := 0
-	if r.mapFocus == 1 {
-		start = clamp(r.mapScroll, 0, max(0, len(clines)-visible))
-	}
-	end := min(start+visible, len(clines))
-	content := strings.Join(clines[start:end], "\n")
+	r.mapVP.Width = rightW - 4
+	r.mapVP.Height = visible
+	r.mapVP.SetContent(raw)
+	content := r.mapVP.View()
 	rightTitle := r.styleTitle.Render("CONTENT") +
-		mutedStyle.Render(fmt.Sprintf(" %d/%d", start+1, len(clines)))
+		mutedStyle.Render(fmt.Sprintf(" %d/%d", r.mapVP.YOffset+1, len(clines)))
 	if r.mapPrev.MapStale && r.mapCursor < len(r.mapPrev.BankPresent) {
 		rightTitle += "  " + r.styleErr.Render("stale")
 	}
@@ -1436,7 +1425,12 @@ func (r Root) masterView() string {
 		b.WriteString("\n  " + r.styleMuted.Render("no projects yet"))
 	}
 	for _, c := range d.Stats.ByLanguage {
-		b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, d.Stats.Total) + "  " + strconv.Itoa(c.Count))
+		pct := 0
+		if d.Stats.Total > 0 {
+			pct = c.Count * 100 / d.Stats.Total
+		}
+		b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, d.Stats.Total) +
+			"  " + strconv.Itoa(c.Count) + r.styleMuted.Render(fmt.Sprintf("  %d%%", pct)))
 	}
 
 	b.WriteString("\n\nRecent activity")
@@ -1506,7 +1500,12 @@ func (r Root) statsView() string {
 			return
 		}
 		for _, c := range cs {
-			b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, st.Total) + "  " + strconv.Itoa(c.Count))
+			pct := 0
+			if st.Total > 0 {
+				pct = c.Count * 100 / st.Total
+			}
+			b.WriteString("\n  " + masterLabel.Render(c.Name) + masterBar(c.Count, st.Total) +
+				"  " + strconv.Itoa(c.Count) + r.styleMuted.Render(fmt.Sprintf("  %d%%", pct)))
 		}
 	}
 	if !r.statsCompact {
